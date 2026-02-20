@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 
 const WS_URL = 'ws://115.242.15.134:19101';
 const LOGIN_DATA = {
-    LoginId: "TEST",
-    Password: "TESTME"
+    LoginId: "ziptest",
+    Password: "ziptest"
 };
 
 export const useMarketData = (enabled = true, onMessage = null) => {
@@ -154,9 +154,9 @@ export const useMarketData = (enabled = true, onMessage = null) => {
             if (handshakeTimeout.current) clearTimeout(handshakeTimeout.current);
 
             if (enabledRef.current) {
-                // Aggressive 50ms Reconnect as requested by USER
-                console.warn('[WS] Aggressive reconnect triggered (50ms)');
-                reconnectTimeout.current = setTimeout(connect, 50);
+                // Modifying aggressive reconnect to prevent 1006 loops/bans
+                console.warn('[WS] Reconnecting (2000ms)...');
+                reconnectTimeout.current = setTimeout(connect, 2000);
             }
         };
 

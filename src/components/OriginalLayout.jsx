@@ -298,7 +298,10 @@ const OriginalLayout = ({
             )}
 
             {/* 2. MULTI-STRIKE DEPTHS GRID */}
-            <div className="flex-shrink-0 max-h-[40vh] overflow-y-auto px-1">
+            <div className={cn(
+                "overflow-y-auto px-1 transition-all duration-300",
+                visibleElements.logs ? "flex-shrink-0 max-h-[40vh]" : "flex-1 h-full"
+            )}>
                 <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
                     {monitoredTokens.map((item, idx) => {
                         const tkn = item.tkn;

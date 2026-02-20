@@ -1,15 +1,189 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Plus, Trash2, X, ChevronDown, Check, ArrowUp, ArrowDown } from 'lucide-react';
+import React, { useState, useMemo, useEffect, useRef, memo } from 'react';
+import { Plus, Trash2, X, ChevronDown, Check, GripVertical } from 'lucide-react';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, Reorder, useDragControls } from 'framer-motion';
 import contractsData from '../contracts_nsefo.json';
 
 function cn(...inputs) {
     return twMerge(clsx(inputs));
 }
 
+const LogRow = memo(({ log, token, side }) => {
+    const isBuy = side === 'buy';
 
+    return (
+        <motion.div
+            layout // Smooth layout transitions
+            initial={{ opacity: 0, x: isBuy ? -10 : 10 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="flex items-center justify-between text-[13px] leading-tight px-1 rounded hover:bg-white/5 transition-colors border-b border-white/5 last:border-0"
+        >
+            {isBuy ? (
+                <>
+                    <span className="font-mono font-bold text-emerald-400 text-base">{log.observedQty}</span>
+                    <span className="text-white/70 font-mono text-[11px]">{Number(log.price).toFixed(2)}</span>
+                </>
+            ) : (
+                <>
+                    <span className="text-white/70 font-mono text-[11px]">{Number(log.price).toFixed(2)}</span>
+                    <span className="font-mono font-bold text-red-400 text-base">{log.observedQty}</span>
+                </>
+            )}
+        </motion.div>
+    );
+}, (prev, next) => {
+    // Custom comparison for performance
+    return prev.log.id === next.log.id &&
+        prev.token.quantity === next.token.quantity;
+});
+
+const DraggableColumn = ({ token, logs, onRemove, onUpdateQty, onUpdateStrike, onUpdateType }) => {
+    const controls = useDragControls();
+
+    // Derived All Strikes
+    const allStrikes = useMemo(() => {
+        let searchIndex = token.index === 'SENSEX' ? 'BSX' : token.index;
+        const filtered = contractsData.filter(c =>
+            c.s === searchIndex &&
+            c.e === token.expiry
+        );
+        const strikes = [...new Set(filtered.map(c => Number(c.st)))];
+        return strikes.sort((a, b) => a - b);
+    }, [token.index, token.expiry, token.strike]); // Added token.strike to dependecy if needed, though mostly index/expiry matters
+
+    const [isEditingStrike, setIsEditingStrike] = useState(false);
+    const dropdownRef = useRef(null);
+
+    useEffect(() => {
+        if (isEditingStrike && dropdownRef.current) {
+            const activeBtn = dropdownRef.current.querySelector('[data-active="true"]');
+            if (activeBtn) activeBtn.scrollIntoView({ block: 'center' });
+        }
+    }, [isEditingStrike]);
+
+    return (
+        <Reorder.Item
+            value={token}
+            dragListener={false}
+            dragControls={controls}
+            className="flex-1 min-w-[200px] max-w-[280px] h-full flex flex-col bg-[#0f1115] border border-white/10 rounded-lg shadow-lg"
+        >
+            {/* Column Header */}
+            <div className="p-2 border-b border-white/10 space-y-2 bg-[#15171c]">
+                <div className="flex items-center justify-between">
+                    <div
+                        className="flex items-center gap-2 cursor-grab active:cursor-grabbing hover:text-white/80 transition-colors"
+                        onPointerDown={(e) => controls.start(e)}
+                    >
+                        <GripVertical size={14} className="text-white/20" />
+                        <span className="text-[10px] font-bold text-white/50 select-none">{token.index} {token.expiry.split('T')[0]}</span>
+                    </div>
+                    <button onClick={onRemove} className="text-white/20 hover:text-red-400 transition-colors">
+                        <X size={12} />
+                    </button>
+                </div>
+
+                {/* Controls Row */}
+                <div className="flex items-center justify-between h-7 px-1">
+                    {/* Strike */}
+                    <div className="relative">
+                        <button
+                            onClick={() => setIsEditingStrike(!isEditingStrike)}
+                            className={cn(
+                                "bg-transparent border-none p-0 flex items-center gap-0.5 transition-colors",
+                                token.type === 'CE' ? "text-cyan-400 hover:text-cyan-300" : "text-purple-400 hover:text-purple-300"
+                            )}
+                        >
+                            <span className="text-xl font-black tracking-tight leading-none">{token.strike}</span>
+                            <ChevronDown size={14} className="opacity-40 flex-shrink-0" />
+                        </button>
+
+                        {isEditingStrike && (
+                            <div
+                                ref={dropdownRef}
+                                className="absolute top-full left-0 mt-1 bg-[#1a1c21] border border-white/10 rounded shadow-xl z-50 max-h-64 overflow-y-auto min-w-[120px]"
+                            >
+                                {allStrikes.map(s => (
+                                    <button
+                                        key={s}
+                                        data-active={s.toString() === token.strike}
+                                        onClick={() => {
+                                            onUpdateStrike(s.toString());
+                                            setIsEditingStrike(false);
+                                        }}
+                                        className={cn(
+                                            "w-full text-left px-2 py-1.5 text-xs hover:bg-white/5 flex items-center justify-between",
+                                            s.toString() === token.strike ? "text-yellow-400 font-bold bg-white/5" : "text-white/60"
+                                        )}
+                                    >
+                                        {s}
+                                        {s.toString() === token.strike && <Check size={10} />}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Controls Group */}
+                    <div className="flex items-center gap-1 h-full">
+                        <button
+                            onClick={() => onUpdateType(token.type === 'CE' ? 'PE' : 'CE')}
+                            className={cn("px-1.5 py-0.5 rounded text-[11px] font-bold border transition-colors hover:brightness-110 flex-shrink-0 h-full flex items-center",
+                                token.type === 'CE' ? "bg-cyan-500/10 text-cyan-400 border-cyan-500/20" : "bg-purple-500/10 text-purple-400 border-purple-500/20")}
+                        >
+                            {token.type}
+                        </button>
+
+                        <div className="flex items-center gap-1 bg-white/5 px-1.5 py-0.5 rounded border border-white/5 flex-shrink-0 h-full">
+                            <span className="text-[10px] text-white/30 uppercase font-bold">Q</span>
+                            <input
+                                type="number"
+                                value={token.quantity}
+                                onChange={(e) => onUpdateQty(e.target.value)}
+                                style={{ width: `${Math.max(1, token.quantity.toString().length) + 2}ch` }}
+                                className="bg-transparent border-none text-[11px] font-bold text-yellow-500 min-w-[20px] max-w-[48px] focus:outline-none text-right [&::-webkit-inner-spin-button]:appearance-none"
+                            />
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Split Columns (Buy | Sell) */}
+            <div className="flex-1 min-h-0 flex divide-x divide-white/10">
+                {/* Buy Column */}
+                <div className="flex-1 flex flex-col min-w-0">
+                    <div className="p-1 border-b border-white/5 text-center">
+                        <span className="text-[9px] font-bold text-emerald-500 uppercase tracking-wider opacity-80">Buy</span>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-1 scrollbar-thin [&::-webkit-scrollbar]:w-1">
+                        <AnimatePresence initial={false} mode='popLayout'>
+                            {logs.filter(l => l.side === 'buy').slice(0, 250).map((log) => (
+                                <LogRow key={log.id} log={log} token={token} side="buy" />
+                            ))}
+                        </AnimatePresence>
+                    </div>
+                </div>
+
+                {/* Sell Column */}
+                <div className="flex-1 flex flex-col min-w-0">
+                    <div className="p-1 border-b border-white/5 text-center">
+                        <span className="text-[9px] font-bold text-red-500 uppercase tracking-wider opacity-80">Sell</span>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-1 scrollbar-thin [&::-webkit-scrollbar]:w-1">
+                        <AnimatePresence initial={false} mode='popLayout'>
+                            {logs.filter(l => l.side === 'sell').slice(0, 250).map((log) => (
+                                <LogRow key={log.id} log={log} token={token} side="sell" />
+                            ))}
+                        </AnimatePresence>
+                    </div>
+                </div>
+            </div>
+        </Reorder.Item>
+    );
+};
 
 const VerticalLayout = ({
     monitoredTokens,
@@ -18,24 +192,22 @@ const VerticalLayout = ({
     onRemoveToken,
     onUpdateTokenQty,
     onUpdateTokenStrike,
-    onUpdateTokenType, // New prop
+    onUpdateTokenType,
     onClearTokens,
-    visibleElements // New prop
+    visibleElements,
+    onReorderTokens, // Destructure new prop
 }) => {
-    // --- Top Bar State ---
+    // --- Top Bar State (Unchanged) ---
     const [globalIndex, setGlobalIndex] = useState('NIFTY');
     const [globalExpiry, setGlobalExpiry] = useState('');
 
-    // Derived Expiries for Global Index
     const availableExpiries = useMemo(() => {
         let searchIndex = globalIndex === 'SENSEX' ? 'BSX' : globalIndex;
-        // Get all expiries for this index
         const filtered = contractsData.filter(c => c.s === searchIndex);
         const expiries = [...new Set(filtered.map(c => c.e))].sort();
         return expiries;
     }, [globalIndex]);
 
-    // Auto-select expiry
     useEffect(() => {
         if (availableExpiries.length > 0 && !availableExpiries.includes(globalExpiry)) {
             const today = new Date().toISOString().split('T')[0];
@@ -45,23 +217,11 @@ const VerticalLayout = ({
 
 
     const handleAddColumn = () => {
-        // Add a default column for the selected Global Index/Expiry
-        // We need a default strike (roughly ATM).
-        // For now, just pick a strike from the list or hardcode a "start" strike.
-        // Better: Find a strike near 25000 (Nifty) or whatever.
-        // Let's just pick the first strike available for the expiry to start, user changes it.
-        // Or hardcode defaults: Nifty 24000, BankNifty 50000.
-
         let defaultStrike = '24000';
         if (globalIndex === 'BANKNIFTY') defaultStrike = '50000';
         if (globalIndex === 'SENSEX') defaultStrike = '80000';
 
-        // Check if strike exists in contracts
         let searchIndex = globalIndex === 'SENSEX' ? 'BSX' : globalIndex;
-        // Try to find a valid token for CE '24000' (or default)
-        // If not found, just don't add? Or add with empty?
-        // Let's try to find *any* strike if default fails.
-
         const validContract = contractsData.find(c =>
             c.s === searchIndex &&
             c.e === globalExpiry &&
@@ -69,19 +229,14 @@ const VerticalLayout = ({
         );
 
         if (validContract) {
-            // If we found a contract, use its strike if our default is bad
-            // Actually, let's just use the validContract we found to ensure it works.
-            // But ideally we want a round number.
-            // Let's just use validContract.st for safety.
             const strike = typeof validContract.st === 'string' ? validContract.st : validContract.st.toString();
-
             const tokenObj = {
                 id: `${validContract.t}_${Date.now()}`,
                 tkn: validContract.t,
                 symbol: validContract.ns,
-                strike: parseFloat(strike).toString(), // Remove decimals if any
+                strike: parseFloat(strike).toString(),
                 type: 'CE',
-                side: 'both', // Monitors both sides by default? User requirement: "2 subcolumns... 1 buy 1 sell". So 'both'.
+                side: 'both',
                 quantity: 5000,
                 expiry: globalExpiry,
                 index: globalIndex
@@ -92,7 +247,7 @@ const VerticalLayout = ({
 
     return (
         <div className="flex flex-col h-full overflow-hidden bg-[#050505]">
-            {/* --- Top Bar --- */}
+            {/* Top Bar */}
             {visibleElements?.config && (
                 <div className="flex items-center gap-4 p-2 border-b border-white/10 bg-[#0a0a0e]">
                     <div className="flex items-center gap-2">
@@ -132,18 +287,22 @@ const VerticalLayout = ({
                 </div>
             )}
 
-            {/* --- Main Content (Horizontal Scroll) --- */}
+            {/* Main Content with Reorder.Group */}
             <div className="flex-1 overflow-x-auto overflow-y-hidden p-2">
-                <div className="flex h-full gap-2 w-full">
+                <Reorder.Group
+                    axis="x"
+                    values={monitoredTokens}
+                    onReorder={onReorderTokens}
+                    className="flex h-full gap-2 w-full min-w-max" // min-w-max crucial for horizontal layout
+                >
                     {monitoredTokens.map(token => (
-                        <VerticalColumn
+                        <DraggableColumn
                             key={token.id}
                             token={token}
-                            logs={logs.filter(l => l.tokenId === token.id)}
+                            logs={logs.filter(l => l.tokenId === token.id || l.tokenId === token.tkn)}
                             onRemove={() => onRemoveToken(token.id)}
                             onUpdateQty={(q) => onUpdateTokenQty(token.id, q)}
                             onUpdateStrike={(s) => {
-                                // Find new token
                                 let searchIndex = token.index === 'SENSEX' ? 'BSX' : token.index;
                                 const strikeVal = Number(s).toFixed(5);
                                 const contract = contractsData.find(c =>
@@ -177,161 +336,7 @@ const VerticalLayout = ({
                             Add a column to start
                         </div>
                     )}
-                </div>
-            </div>
-        </div>
-    );
-};
-
-// Sub-component for individual column
-const VerticalColumn = ({ token, logs, onRemove, onUpdateQty, onUpdateStrike, onUpdateType }) => {
-    // Local state for dropdowns
-    const [isEditingStrike, setIsEditingStrike] = useState(false);
-
-    // Derived All Strikes
-    const allStrikes = useMemo(() => {
-        let searchIndex = token.index === 'SENSEX' ? 'BSX' : token.index;
-        // Get all strikes for this index + expiry
-        // standardizing to number for sort
-        const filtered = contractsData.filter(c =>
-            c.s === searchIndex &&
-            c.e === token.expiry
-        );
-        const strikes = [...new Set(filtered.map(c => Number(c.st)))];
-        return strikes.sort((a, b) => a - b);
-    }, [token.index, token.expiry]);
-
-    // Auto-scroll to current strike
-    const dropdownRef = useRef(null);
-    useEffect(() => {
-        if (isEditingStrike && dropdownRef.current) {
-            const activeBtn = dropdownRef.current.querySelector('[data-active="true"]');
-            if (activeBtn) {
-                activeBtn.scrollIntoView({ block: 'center' });
-            }
-        }
-    }, [isEditingStrike]);
-
-    return (
-        <div className="flex-1 min-w-[200px] max-w-[280px] h-full flex flex-col bg-[#0f1115] border border-white/10 rounded-lg shadow-lg">
-            {/* Column Header */}
-            <div className="p-2 border-b border-white/10 space-y-2 bg-[#15171c]">
-                <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-bold text-white/50">{token.index} {token.expiry.split('T')[0]}</span>
-                    <button onClick={onRemove} className="text-white/20 hover:text-red-400 transition-colors">
-                        <X size={12} />
-                    </button>
-                </div>
-
-                {/* Controls Row */}
-                {/* Controls Row - Adjusted Spacing */}
-                <div className="flex items-center gap-1 h-7">
-                    {/* Strike - Allow natural width, prevent shrinking */}
-                    <div className="relative">
-                        <button
-                            onClick={() => setIsEditingStrike(!isEditingStrike)}
-                            className={cn(
-                                "bg-transparent border-none p-0 flex items-center gap-0.5 transition-colors",
-                                token.type === 'CE' ? "text-cyan-400 hover:text-cyan-300" : "text-purple-400 hover:text-purple-300"
-                            )}
-                        >
-                            <span className="text-xl font-black tracking-tight leading-none">{token.strike}</span>
-                            <ChevronDown size={14} className="opacity-40 flex-shrink-0" />
-                        </button>
-
-                        {isEditingStrike && (
-                            <div
-                                ref={dropdownRef}
-                                className="absolute top-full left-0 mt-1 bg-[#1a1c21] border border-white/10 rounded shadow-xl z-50 max-h-64 overflow-y-auto min-w-[120px]"
-                            >
-                                {allStrikes.map(s => (
-                                    <button
-                                        key={s}
-                                        data-active={s.toString() === token.strike}
-                                        onClick={() => {
-                                            onUpdateStrike(s.toString());
-                                            setIsEditingStrike(false);
-                                        }}
-                                        className={cn(
-                                            "w-full text-left px-2 py-1.5 text-xs hover:bg-white/5 flex items-center justify-between",
-                                            s.toString() === token.strike ? "text-yellow-400 font-bold bg-white/5" : "text-white/60"
-                                        )}
-                                    >
-                                        {s}
-                                        {s.toString() === token.strike && <Check size={10} />}
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Type Toggle */}
-                    <button
-                        onClick={() => onUpdateType(token.type === 'CE' ? 'PE' : 'CE')}
-                        className={cn("px-1.5 py-0.5 rounded text-[11px] font-bold border transition-colors hover:brightness-110 flex-shrink-0 h-full flex items-center",
-                            token.type === 'CE' ? "bg-cyan-500/10 text-cyan-400 border-cyan-500/20" : "bg-purple-500/10 text-purple-400 border-purple-500/20")}
-                    >
-                        {token.type}
-                    </button>
-
-                    {/* Qty Input */}
-                    <div className="flex items-center gap-1 bg-white/5 px-1.5 py-0.5 rounded border border-white/5 flex-shrink-0 h-full">
-                        <span className="text-[10px] text-white/30 uppercase font-bold">Q</span>
-                        <input
-                            type="number"
-                            value={token.quantity}
-                            onChange={(e) => onUpdateQty(e.target.value)}
-                            className="bg-transparent border-none text-[11px] font-bold text-yellow-500 w-10 focus:outline-none text-right"
-                        />
-                    </div>
-                </div>
-            </div>
-
-            {/* Split Columns (Buy | Sell) */}
-            <div className="flex-1 min-h-0 flex divide-x divide-white/10">
-                {/* Buy Column - Green Text Only */}
-                <div className="flex-1 flex flex-col min-w-0">
-                    <div className="p-1 border-b border-white/5 text-center">
-                        <span className="text-[9px] font-bold text-emerald-500 uppercase tracking-wider opacity-80">Buy</span>
-                    </div>
-                    <div className="flex-1 overflow-y-auto p-1 space-y-0.5 scrollbar-thin">
-                        <AnimatePresence initial={false}>
-                            {logs.filter(l => l.side === 'buy').map((log, i) => (
-                                <motion.div
-                                    key={log.id}
-                                    initial={{ opacity: 0, x: -10 }}
-                                    animate={{ opacity: 1, x: 0 }}
-                                    className="flex items-center justify-between text-[11px] py-0.5 px-1 rounded hover:bg-white/5 transition-colors border-b border-white/5 last:border-0"
-                                >
-                                    <span className="text-emerald-400 font-mono font-bold">{log.observedQty}</span>
-                                    <span className="text-white/70 font-mono">{Number(log.price).toFixed(2)}</span>
-                                </motion.div>
-                            ))}
-                        </AnimatePresence>
-                    </div>
-                </div>
-
-                {/* Sell Column - Red Text Only */}
-                <div className="flex-1 flex flex-col min-w-0">
-                    <div className="p-1 border-b border-white/5 text-center">
-                        <span className="text-[9px] font-bold text-red-500 uppercase tracking-wider opacity-80">Sell</span>
-                    </div>
-                    <div className="flex-1 overflow-y-auto p-1 space-y-0.5 scrollbar-thin">
-                        <AnimatePresence initial={false}>
-                            {logs.filter(l => l.side === 'sell').map((log, i) => (
-                                <motion.div
-                                    key={log.id}
-                                    initial={{ opacity: 0, x: 10 }}
-                                    animate={{ opacity: 1, x: 0 }}
-                                    className="flex items-center justify-between text-[11px] py-0.5 px-1 rounded hover:bg-white/5 transition-colors border-b border-white/5 last:border-0"
-                                >
-                                    <span className="text-white/70 font-mono">{Number(log.price).toFixed(2)}</span>
-                                    <span className="text-red-400 font-mono font-bold">{log.observedQty}</span>
-                                </motion.div>
-                            ))}
-                        </AnimatePresence>
-                    </div>
-                </div>
+                </Reorder.Group>
             </div>
         </div>
     );
