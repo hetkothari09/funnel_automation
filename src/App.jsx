@@ -366,6 +366,7 @@ const App = () => {
                         layoutMode={monitorLayouts[m.id] || 'original'}
                         onLayoutChange={(mode) => setMonitorLayouts(prev => ({ ...prev, [m.id]: mode }))}
                         depthEvents={depthEvents.current} // Pass Event Bus
+                        isSidebarVisible={isSidebarVisible} // Pass Sidebar State
                     />
                 ))}
             </main>

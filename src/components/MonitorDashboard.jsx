@@ -111,7 +111,9 @@ const MonitorDashboard = ({
     onRemove,
     layoutMode,
     onLayoutChange,
-    depthEvents // Low-latency event bus
+
+    depthEvents, // Low-latency event bus
+    isSidebarVisible // New prop
 }) => {
     // --- Layout State is now controlled by Parent (App.jsx) ---
 
@@ -443,6 +445,7 @@ const MonitorDashboard = ({
                     showAllPrices={showAllPrices}
                     setShowAllPrices={setShowAllPrices}
                     onReorderTokens={setMonitoredTokens} // Pass drag-and-drop handler
+                    isSidebarVisible={isSidebarVisible}
                 />
             )}
         </div>

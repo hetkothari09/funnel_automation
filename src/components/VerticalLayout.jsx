@@ -55,12 +55,48 @@ const DraggableColumn = ({ token, logs, onRemove, onUpdateQty, onUpdateStrike, o
     }, [token.index, token.expiry, token.strike]); // Added token.strike to dependecy if needed, though mostly index/expiry matters
 
     const [isEditingStrike, setIsEditingStrike] = useState(false);
+    const [searchTerm, setSearchTerm] = useState("");
     const dropdownRef = useRef(null);
+    const inputRef = useRef(null);
+    const containerRef = useRef(null); // Ref for click-outside detection
+
+    // Handle Click Outside & Escape
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (containerRef.current && !containerRef.current.contains(event.target)) {
+                setIsEditingStrike(false);
+            }
+        };
+
+        const handleKeyDown = (event) => {
+            if (event.key === 'Escape') {
+                setIsEditingStrike(false);
+            }
+        };
+
+        if (isEditingStrike) {
+            document.addEventListener('mousedown', handleClickOutside);
+            document.addEventListener('keydown', handleKeyDown);
+        }
+
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+            document.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [isEditingStrike]);
 
     useEffect(() => {
-        if (isEditingStrike && dropdownRef.current) {
-            const activeBtn = dropdownRef.current.querySelector('[data-active="true"]');
-            if (activeBtn) activeBtn.scrollIntoView({ block: 'center' });
+        if (isEditingStrike) {
+            setSearchTerm(""); // Reset search
+            // Focus input after render
+            setTimeout(() => {
+                if (inputRef.current) inputRef.current.focus();
+            }, 0);
+
+            if (dropdownRef.current) {
+                const activeBtn = dropdownRef.current.querySelector('[data-active="true"]');
+                if (activeBtn) activeBtn.scrollIntoView({ block: 'center' });
+            }
         }
     }, [isEditingStrike]);
 
@@ -89,7 +125,7 @@ const DraggableColumn = ({ token, logs, onRemove, onUpdateQty, onUpdateStrike, o
                 {/* Controls Row */}
                 <div className="flex items-center justify-between h-7 px-1">
                     {/* Strike */}
-                    <div className="relative">
+                    <div className="relative" ref={containerRef}>
                         <button
                             onClick={() => setIsEditingStrike(!isEditingStrike)}
                             className={cn(
@@ -104,9 +140,20 @@ const DraggableColumn = ({ token, logs, onRemove, onUpdateQty, onUpdateStrike, o
                         {isEditingStrike && (
                             <div
                                 ref={dropdownRef}
-                                className="absolute top-full left-0 mt-1 bg-[#1a1c21] border border-white/10 rounded shadow-xl z-50 max-h-64 overflow-y-auto min-w-[120px]"
+                                className="absolute top-full left-0 mt-1 bg-[#1a1c21] border border-white/10 rounded shadow-xl z-50 max-h-64 overflow-y-auto min-w-[140px]"
                             >
-                                {allStrikes.map(s => (
+                                <div className="sticky top-0 bg-[#1a1c21] p-1.5 border-b border-white/10 z-10">
+                                    <input
+                                        ref={inputRef}
+                                        type="text"
+                                        placeholder="Search..."
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                        className="w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-[11px] text-white focus:outline-none focus:border-blue-500 placeholder-white/20"
+                                        onClick={(e) => e.stopPropagation()}
+                                    />
+                                </div>
+                                {allStrikes.filter(s => s.toString().includes(searchTerm)).map(s => (
                                     <button
                                         key={s}
                                         data-active={s.toString() === token.strike}
@@ -195,7 +242,9 @@ const VerticalLayout = ({
     onUpdateTokenType,
     onClearTokens,
     visibleElements,
+
     onReorderTokens, // Destructure new prop
+    isSidebarVisible // New prop
 }) => {
     // --- Top Bar State (Unchanged) ---
     const [globalIndex, setGlobalIndex] = useState('NIFTY');
@@ -249,7 +298,9 @@ const VerticalLayout = ({
         <div className="flex flex-col h-full overflow-hidden bg-[#050505]">
             {/* Top Bar */}
             {visibleElements?.config && (
-                <div className="flex items-center gap-4 p-2 border-b border-white/10 bg-[#0a0a0e]">
+                <div className={cn("flex items-center gap-4 p-2 border-b border-white/10 bg-[#0a0a0e] transition-all",
+                    !isSidebarVisible && "pl-12" // Add padding when sidebar is closed to avoid overlap with toggle button
+                )}>
                     <div className="flex items-center gap-2">
                         <label className="text-[10px] text-white/40 uppercase font-bold">Index</label>
                         <select
