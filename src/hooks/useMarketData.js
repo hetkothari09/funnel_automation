@@ -6,7 +6,7 @@ const LOGIN_DATA = {
     Password: "ziptest"
 };
 
-export const useMarketData = (enabled = true, onMessage = null) => {
+export const useMarketData = (enabled = true, onMessage = null, onDepthPacket = null) => {
     const [status, setStatus] = useState('disconnected');
     const [depthData, setDepthData] = useState({});
 
@@ -16,6 +16,7 @@ export const useMarketData = (enabled = true, onMessage = null) => {
     const syncInterval = useRef(null);
     const handshakeTimeout = useRef(null);
     const onMessageRef = useRef(onMessage);
+    const onDepthPacketRef = useRef(onDepthPacket);
     const enabledRef = useRef(enabled);
     const isLoggedIn = useRef(false);
     const isReady = useRef(false);
@@ -30,8 +31,9 @@ export const useMarketData = (enabled = true, onMessage = null) => {
     // Keep refs updated
     useEffect(() => {
         onMessageRef.current = onMessage;
+        onDepthPacketRef.current = onDepthPacket;
         enabledRef.current = enabled;
-    }, [onMessage, enabled]);
+    }, [onMessage, onDepthPacket, enabled]);
 
     const connect = useCallback(() => {
         if (ws.current) {
@@ -105,6 +107,12 @@ export const useMarketData = (enabled = true, onMessage = null) => {
 
                 // 2. Buffer ONLY Depth Data (Ignore unsolicited IndexData)
                 if ((Type === 'Depth' || Type === 'DepthData') && Data) {
+
+                    // Direct Audio Link: Emit immediately for low-latency alerts
+                    if (onDepthPacketRef.current) {
+                        onDepthPacketRef.current(Data);
+                    }
+
                     const token = Data.Tkn || Data.Token;
                     if (token) {
                         const tknStr = String(token);

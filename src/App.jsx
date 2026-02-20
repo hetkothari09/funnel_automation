@@ -82,7 +82,15 @@ const App = () => {
         }
     }, [addDebug]);
 
-    const { status, depthData, subscribe } = useMarketData(isWsEnabled, handleRawMessage);
+    // --- Event Bus for Low-Latency Alerts ---
+    const depthEvents = React.useRef(new EventTarget());
+
+    const handleDepthPacket = useCallback((packet) => {
+        // Dispatch raw packet immediately to listeners
+        depthEvents.current.dispatchEvent(new CustomEvent('depth-packet', { detail: packet }));
+    }, []);
+
+    const { status, depthData, subscribe } = useMarketData(isWsEnabled, handleRawMessage, handleDepthPacket);
 
     // --- Global Notification Logic ---
     const addGlobalNotification = useCallback((details) => {
@@ -357,6 +365,7 @@ const App = () => {
                         onRemove={handleRemoveMonitor}
                         layoutMode={monitorLayouts[m.id] || 'original'}
                         onLayoutChange={(mode) => setMonitorLayouts(prev => ({ ...prev, [m.id]: mode }))}
+                        depthEvents={depthEvents.current} // Pass Event Bus
                     />
                 ))}
             </main>
@@ -365,3 +374,4 @@ const App = () => {
 };
 
 export default App;
+

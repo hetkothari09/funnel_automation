@@ -17,78 +17,84 @@ const playAlertSound = (qty) => {
         gainNode.connect(audioCtx.destination);
 
         const now = audioCtx.currentTime;
-        const volume = 0.15; // Increased base volume slightly
+        const volume = 0.2;
 
-        // Tier 4: > 200,000 - Siren/Alarm (Sawtooth, Aggressive)
+        // Tier 4: > 200,000 - "Siren" (1.0s)
         if (qty >= 200000) {
             const osc = audioCtx.createOscillator();
             osc.type = 'sawtooth';
-            osc.frequency.setValueAtTime(150, now);
-            osc.frequency.linearRampToValueAtTime(300, now + 0.3); // Siren wobble
-            osc.frequency.linearRampToValueAtTime(150, now + 0.6);
+            osc.frequency.setValueAtTime(1000, now);
+            osc.frequency.linearRampToValueAtTime(1500, now + 0.2);
+            osc.frequency.linearRampToValueAtTime(1000, now + 0.4);
+            osc.frequency.linearRampToValueAtTime(1500, now + 0.6);
+            osc.frequency.linearRampToValueAtTime(1000, now + 0.8);
 
             gainNode.gain.setValueAtTime(volume, now);
+            gainNode.gain.linearRampToValueAtTime(0, now + 1.0);
+
+            osc.connect(gainNode);
+            osc.start(now);
+            osc.stop(now + 1.0);
+        }
+        // Tier 3: > 100,000 - "Charge" (0.8s)
+        else if (qty >= 100000) {
+            const osc = audioCtx.createOscillator();
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(200, now);
+            osc.frequency.exponentialRampToValueAtTime(800, now + 0.6);
+
+            gainNode.gain.setValueAtTime(0, now);
+            gainNode.gain.linearRampToValueAtTime(volume, now + 0.1);
             gainNode.gain.linearRampToValueAtTime(0, now + 0.8);
 
             osc.connect(gainNode);
             osc.start(now);
             osc.stop(now + 0.8);
         }
-        // Tier 3: > 100,000 - Success Chime (Major Triad)
-        else if (qty >= 100000) {
-            const notes = [523.25, 659.25, 783.99]; // C5, E5, G5
-            notes.forEach((freq, i) => {
-                const osc = audioCtx.createOscillator();
-                osc.type = 'triangle';
-                osc.frequency.value = freq;
-
-                const noteGain = audioCtx.createGain();
-                noteGain.connect(audioCtx.destination);
-
-                const startTime = now + (i * 0.1);
-                noteGain.gain.setValueAtTime(0, startTime);
-                noteGain.gain.linearRampToValueAtTime(volume * 0.8, startTime + 0.05);
-                noteGain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.4);
-
-                osc.connect(noteGain);
-                osc.start(startTime);
-                osc.stop(startTime + 0.4);
-            });
-        }
-        // Tier 2: > 50,000 - Double Beep (Square, Digital)
+        // Tier 2: > 50,000 - "Coin" (0.6s total)
         else if (qty >= 50000) {
-            const osc = audioCtx.createOscillator();
-            osc.type = 'square';
+            // Note 1
+            const osc1 = audioCtx.createOscillator();
+            osc1.type = 'sine';
+            osc1.frequency.setValueAtTime(1046.50, now); // C6
 
-            // First Beep
-            gainNode.gain.setValueAtTime(volume * 0.6, now);
-            gainNode.gain.setValueAtTime(0, now + 0.1);
+            const gain1 = audioCtx.createGain();
+            gain1.connect(audioCtx.destination);
+            gain1.gain.setValueAtTime(volume, now);
+            gain1.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
 
-            // Second Beep
-            gainNode.gain.setValueAtTime(volume * 0.6, now + 0.15);
-            gainNode.gain.setValueAtTime(0, now + 0.25);
+            osc1.connect(gain1);
+            osc1.start(now);
+            osc1.stop(now + 0.2);
 
-            osc.frequency.setValueAtTime(600, now);
+            // Note 2
+            const osc2 = audioCtx.createOscillator();
+            osc2.type = 'sine';
+            osc2.frequency.setValueAtTime(1318.51, now + 0.15); // E6
 
-            osc.connect(gainNode);
-            osc.start(now);
-            osc.stop(now + 0.3);
+            const gain2 = audioCtx.createGain();
+            gain2.connect(audioCtx.destination);
+            gain2.gain.setValueAtTime(volume, now + 0.15);
+            gain2.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+
+            osc2.connect(gain2);
+            osc2.start(now + 0.15);
+            osc2.stop(now + 0.5);
         }
-        // Tier 1: > 20,000 (Default) - "Ting" (High Sine Slide)
+        // Tier 1: > 20,000 - "Pop" (0.5s)
         else {
             const osc = audioCtx.createOscillator();
             osc.type = 'sine';
-            osc.frequency.setValueAtTime(880, now);
-            osc.frequency.exponentialRampToValueAtTime(1760, now + 0.1);
+            osc.frequency.setValueAtTime(600, now);
+            osc.frequency.exponentialRampToValueAtTime(100, now + 0.4);
 
             gainNode.gain.setValueAtTime(volume, now);
-            gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
 
             osc.connect(gainNode);
             osc.start(now);
-            osc.stop(now + 0.2);
+            osc.stop(now + 0.4);
         }
-
     } catch (e) {
         console.warn('Audio alert failed', e);
     }
@@ -104,7 +110,8 @@ const MonitorDashboard = ({
     visibleElements,
     onRemove,
     layoutMode,
-    onLayoutChange
+    onLayoutChange,
+    depthEvents // Low-latency event bus
 }) => {
     // --- Layout State is now controlled by Parent (App.jsx) ---
 
@@ -151,19 +158,66 @@ const MonitorDashboard = ({
         }
     }, [subscribe, monitoredTokens.length]); // Length check is proxy for list existence/reset
 
-    // --- Polling & Alert Logic ---
+
+
+    // --- Direct Audio Link (Low Latency) ---
+    useEffect(() => {
+        if (!depthEvents) return;
+
+        const handlePacket = (e) => {
+            const packet = e.detail;
+            const tkn = packet.Tkn || packet.Token;
+
+            // 1. Find if we are monitoring this token
+            const monitoredItem = monitoredTokens.find(m => String(m.tkn) === String(tkn));
+            if (!monitoredItem) return;
+
+            // 2. Check Thresholds
+            const depths = packet.depths || [];
+
+            // Check both sides if needed
+            const sidesToCheck = monitoredItem.side === 'both' ? ['buy', 'sell'] : [monitoredItem.side];
+
+            for (const side of sidesToCheck) {
+                const internalSide = side === 'buy' ? 'bid' : 'ask';
+
+                // Find any depth in this packet that crosses threshold
+                const hasHighQty = depths.some(d => {
+                    const qty = internalSide === 'bid' ? d.BQ : d.SQ;
+                    return qty >= monitoredItem.quantity;
+                });
+
+                if (hasHighQty) {
+                    // 3. Play Sound Immediately (Bypassing React State)
+                    // We use the highest qty in the packet to determine pitch/tier, 
+                    // or just trigger the sound for the first match.
+                    // Let's find the max qty to play the correct tier.
+                    const maxQty = Math.max(...depths.map(d => internalSide === 'bid' ? d.BQ : d.SQ));
+                    if (maxQty >= monitoredItem.quantity) {
+                        playAlertSound(maxQty);
+                    }
+                }
+            }
+        };
+
+        depthEvents.addEventListener('depth-packet', handlePacket);
+        return () => depthEvents.removeEventListener('depth-packet', handlePacket);
+    }, [depthEvents, monitoredTokens]); // Re-bind when monitored list changes
+
+    // --- Polling & Alert Logic (Visuals Only) ---
     const latestDepthData = useRef(depthData);
     useEffect(() => {
         latestDepthData.current = depthData;
     }, [depthData]);
 
     const priceLevels = useRef({});
+    const lastProcessedTimes = useRef({}); // Track last processed packet timestamp per token
 
     useEffect(() => {
         if (monitoredTokens.length === 0) return;
 
         const pollInterval = setInterval(() => {
-            if (status !== 'Connected' && status !== 'CONNECTED' && status !== 'connected') return; // Stop processing if disconnected
+            if (status !== 'Connected' && status !== 'CONNECTED' && status !== 'connected') return;
 
             const currentData = latestDepthData.current;
 
@@ -171,6 +225,15 @@ const MonitorDashboard = ({
                 const tkn = item.tkn;
                 const depth = currentData[tkn] || currentData[Number(tkn)];
                 if (!depth) return;
+
+                // Check for Freshness
+                const lastTime = lastProcessedTimes.current[tkn] || 0;
+                const pktTime = depth._receivedAt || 0;
+                const isFresh = pktTime > lastTime;
+
+                if (isFresh) {
+                    lastProcessedTimes.current[tkn] = pktTime;
+                }
 
                 const sides = item.side === 'both' ? ['buy', 'sell'] : [item.side];
 
@@ -217,6 +280,7 @@ const MonitorDashboard = ({
                             }
                         }
 
+
                         if (shouldLog) {
                             state.lastAlertQty = observedQty;
                             state.lastAlertTime = now;
@@ -237,10 +301,9 @@ const MonitorDashboard = ({
 
                             setLogs(prev => [{ ...details, id: logId }, ...prev].slice(0, 3000)); // Increased buffer to 3000
 
-                            // Only trigger Global Alert / Sound if threshold is met
+                            // Global Notification (still throttled by log logic)
                             if (observedQty >= item.quantity) {
                                 addGlobalNotification({ ...details, id: logId });
-                                playAlertSound(observedQty);
                             }
                         }
                     });
@@ -320,6 +383,7 @@ const MonitorDashboard = ({
     };
 
     const handleUpdateTokenStrike = (tokenId, newStrike, newTkn, newSymbol) => {
+        setLogs(prev => prev.filter(l => l.tokenId !== tokenId)); // Clear logs for this token
         setMonitoredTokens(prev => prev.map(m => {
             if (m.id === tokenId) {
                 const xchg = m.index === 'SENSEX' ? 'BSEFO' : 'NSEFO';
@@ -332,6 +396,7 @@ const MonitorDashboard = ({
     };
 
     const handleUpdateTokenType = (tokenId, newType, newTkn, newSymbol) => {
+        setLogs(prev => prev.filter(l => l.tokenId !== tokenId)); // Clear logs for this token
         setMonitoredTokens(prev => prev.map(m => {
             if (m.id === tokenId) {
                 const xchg = m.index === 'SENSEX' ? 'BSEFO' : 'NSEFO';
