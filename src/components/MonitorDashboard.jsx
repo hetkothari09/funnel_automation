@@ -446,6 +446,7 @@ const MonitorDashboard = ({
                     setShowAllPrices={setShowAllPrices}
                     onReorderTokens={setMonitoredTokens} // Pass drag-and-drop handler
                     isSidebarVisible={isSidebarVisible}
+                    depthData={depthData}
                 />
             )}
         </div>

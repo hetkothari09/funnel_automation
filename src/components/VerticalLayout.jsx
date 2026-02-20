@@ -9,11 +9,12 @@ function cn(...inputs) {
     return twMerge(clsx(inputs));
 }
 
-const LogRow = memo(({ log, token, side }) => {
+const LogRow = memo(React.forwardRef(({ log, token, side }, ref) => {
     const isBuy = side === 'buy';
 
     return (
         <motion.div
+            ref={ref} // Forward the ref to the motion component
             layout // Smooth layout transitions
             initial={{ opacity: 0, x: isBuy ? -10 : 10 }}
             animate={{ opacity: 1, x: 0 }}
@@ -34,13 +35,13 @@ const LogRow = memo(({ log, token, side }) => {
             )}
         </motion.div>
     );
-}, (prev, next) => {
+}), (prev, next) => {
     // Custom comparison for performance
     return prev.log.id === next.log.id &&
         prev.token.quantity === next.token.quantity;
 });
 
-const DraggableColumn = ({ token, logs, onRemove, onUpdateQty, onUpdateStrike, onUpdateType }) => {
+const DraggableColumn = ({ token, isAtm, onDragStateChange, logs, onRemove, onUpdateQty, onUpdateStrike, onUpdateType }) => {
     const controls = useDragControls();
 
     // Derived All Strikes
@@ -105,7 +106,12 @@ const DraggableColumn = ({ token, logs, onRemove, onUpdateQty, onUpdateStrike, o
             value={token}
             dragListener={false}
             dragControls={controls}
-            className="flex-1 min-w-[200px] max-w-[280px] h-full flex flex-col bg-[#0f1115] border border-white/10 rounded-lg shadow-lg"
+            onDragStart={() => onDragStateChange(true)}
+            onDragEnd={() => onDragStateChange(false)}
+            className={cn(
+                "flex-1 min-w-[200px] max-w-[280px] h-full flex flex-col bg-[#0f1115] border rounded-lg shadow-lg transition-all duration-500",
+                isAtm ? "border-yellow-400/50 shadow-[0_0_15px_rgba(250,204,21,0.15)] z-10" : "border-white/10"
+            )}
         >
             {/* Column Header */}
             <div className="p-2 border-b border-white/10 space-y-2 bg-[#15171c]">
@@ -244,11 +250,67 @@ const VerticalLayout = ({
     visibleElements,
 
     onReorderTokens, // Destructure new prop
-    isSidebarVisible // New prop
+    isSidebarVisible, // New prop
+    depthData // Need depthData to get Spot Prices
 }) => {
     // --- Top Bar State (Unchanged) ---
     const [globalIndex, setGlobalIndex] = useState('NIFTY');
     const [globalExpiry, setGlobalExpiry] = useState('');
+    const [atmStrike, setAtmStrike] = useState(null);
+    const [isManualDragging, setIsManualDragging] = useState(false);
+
+    // --- Spot Price & ATM Logic ---
+    useEffect(() => {
+        // Prevent auto-reorder while user is manually dragging
+        if (isManualDragging) return;
+
+        // 1. Get Spot Token ID based on Global Index
+        let spotTokenId = null;
+        let step = 50; // Default NIFTY Step
+
+        if (globalIndex === 'NIFTY') { spotTokenId = '26000'; step = 50; }
+        else if (globalIndex === 'BANKNIFTY') { spotTokenId = '26009'; step = 100; }
+        // Add others if known, else skip
+
+        if (!spotTokenId || !depthData || !depthData[spotTokenId]) return;
+
+        // 2. Get Spot Price
+        // IndexData packet structure usually has 'iv' (Index Value) or similar. 
+        // Based on typical NSE updates, it might be in `Touchline` format or specific `IndexData`.
+        // Let's assume standard `ltp` or `LastTradedPrice` or `iv` is available in the object.
+        // We enabled 'IndexData' flow, so let's inspect what we get. usually it's `LastTradedPrice` or `Close`.
+        // Ideally we check `rt` (Real Time) or `iv`. Let's fallback to `ltp`.
+        const spotPacket = depthData[spotTokenId];
+        // IndexData uses 'Price'. Depth uses 'ltp' or 'iv'.
+        const spotPrice = parseFloat(spotPacket.Price || spotPacket.iv || spotPacket.ltp || spotPacket.LastTradedPrice || 0);
+
+        if (!spotPrice) {
+            console.log(`[ATM] Spot Price missing for ${globalIndex} (${spotTokenId}):`, spotPacket);
+            return;
+        }
+
+        // 3. Calculate ATM Strike
+        const calculatedAtm = Math.round(spotPrice / step) * step;
+
+        // 4. Update interactions ONLY if ATM changes
+        if (atmStrike !== calculatedAtm) {
+            setAtmStrike(calculatedAtm);
+        }
+
+        // 5. Auto-Reorder: Ensure ATM column is at front whenever tokens or ATM changes
+        const currentTokens = [...monitoredTokens];
+        const atmIndex = currentTokens.findIndex(t =>
+            t.index === globalIndex &&
+            parseFloat(t.strike) === calculatedAtm
+        );
+
+        if (atmIndex > 0) { // If found and not already first
+            const [atmToken] = currentTokens.splice(atmIndex, 1);
+            const newOrder = [atmToken, ...currentTokens];
+            onReorderTokens(newOrder); // This updates the parent state
+        }
+    }, [depthData, globalIndex, monitoredTokens, onReorderTokens, atmStrike, isManualDragging]);
+
 
     const availableExpiries = useMemo(() => {
         let searchIndex = globalIndex === 'SENSEX' ? 'BSX' : globalIndex;
@@ -346,41 +408,46 @@ const VerticalLayout = ({
                     onReorder={onReorderTokens}
                     className="flex h-full gap-2 w-full min-w-max" // min-w-max crucial for horizontal layout
                 >
-                    {monitoredTokens.map(token => (
-                        <DraggableColumn
-                            key={token.id}
-                            token={token}
-                            logs={logs.filter(l => l.tokenId === token.id || l.tokenId === token.tkn)}
-                            onRemove={() => onRemoveToken(token.id)}
-                            onUpdateQty={(q) => onUpdateTokenQty(token.id, q)}
-                            onUpdateStrike={(s) => {
-                                let searchIndex = token.index === 'SENSEX' ? 'BSX' : token.index;
-                                const strikeVal = Number(s).toFixed(5);
-                                const contract = contractsData.find(c =>
-                                    c.s === searchIndex &&
-                                    c.p === token.type &&
-                                    c.e === token.expiry &&
-                                    Number(c.st).toFixed(5) === strikeVal
-                                );
-                                if (contract) {
-                                    onUpdateTokenStrike(token.id, s, contract.t, contract.ns);
-                                }
-                            }}
-                            onUpdateType={(newType) => {
-                                let searchIndex = token.index === 'SENSEX' ? 'BSX' : token.index;
-                                const strikeVal = Number(token.strike).toFixed(5);
-                                const contract = contractsData.find(c =>
-                                    c.s === searchIndex &&
-                                    c.p === newType &&
-                                    c.e === token.expiry &&
-                                    Number(c.st).toFixed(5) === strikeVal
-                                );
-                                if (contract) {
-                                    onUpdateTokenType(token.id, newType, contract.t, contract.ns);
-                                }
-                            }}
-                        />
-                    ))}
+                    {monitoredTokens.map(token => {
+                        const isAtm = token.index === globalIndex && parseFloat(token.strike) === atmStrike;
+                        return (
+                            <DraggableColumn
+                                key={token.id}
+                                token={token}
+                                isAtm={isAtm}
+                                onDragStateChange={setIsManualDragging}
+                                logs={logs.filter(l => l.tokenId === token.id || l.tokenId === token.tkn)}
+                                onRemove={() => onRemoveToken(token.id)}
+                                onUpdateQty={(q) => onUpdateTokenQty(token.id, q)}
+                                onUpdateStrike={(s) => {
+                                    let searchIndex = token.index === 'SENSEX' ? 'BSX' : token.index;
+                                    const strikeVal = Number(s).toFixed(5);
+                                    const contract = contractsData.find(c =>
+                                        c.s === searchIndex &&
+                                        c.p === token.type &&
+                                        c.e === token.expiry &&
+                                        Number(c.st).toFixed(5) === strikeVal
+                                    );
+                                    if (contract) {
+                                        onUpdateTokenStrike(token.id, s, contract.t, contract.ns);
+                                    }
+                                }}
+                                onUpdateType={(newType) => {
+                                    let searchIndex = token.index === 'SENSEX' ? 'BSX' : token.index;
+                                    const strikeVal = Number(token.strike).toFixed(5);
+                                    const contract = contractsData.find(c =>
+                                        c.s === searchIndex &&
+                                        c.p === newType &&
+                                        c.e === token.expiry &&
+                                        Number(c.st).toFixed(5) === strikeVal
+                                    );
+                                    if (contract) {
+                                        onUpdateTokenType(token.id, newType, contract.t, contract.ns);
+                                    }
+                                }}
+                            />
+                        );
+                    })}
 
                     {monitoredTokens.length === 0 && (
                         <div className="flex items-center justify-center w-64 h-full border border-dashed border-white/10 rounded text-white/20 text-sm">

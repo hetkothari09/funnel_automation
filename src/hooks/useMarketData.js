@@ -72,20 +72,39 @@ export const useMarketData = (enabled = true, onMessage = null, onDepthPacket = 
                             !activeSubscriptions.current.has(String(q.Tkn))
                         );
 
-                        const allQuotes = [...activeQuotes, ...freshQuotes];
+                        // 1. Separate tokens by Exchange
+                        // NSEFO -> FeedType 2 (Depth)
+                        // NSE (Indices) -> FeedType 1 (Touchline)
+                        const allTokens = [...activeQuotes, ...freshQuotes];
+                        const depthTokens = allTokens.filter(q => q.Xchg === 'NSEFO');
 
-                        if (allQuotes.length > 0) {
-                            const payload = {
+                        const indexTokens = [
+                            { Tkn: '26000', Xchg: 'NSE' },
+                            { Tkn: '26009', Xchg: 'NSE' },
+                            ...allTokens.filter(q => q.Xchg === 'NSE')
+                        ].filter((v, i, a) => a.findIndex(t => t.Tkn === v.Tkn) === i); // Deduplicate
+
+                        // Send Depth Sub
+                        if (depthTokens.length > 0) {
+                            ws.current.send(JSON.stringify({
                                 Type: "TokenRequest",
-                                Data: { SubType: true, FeedType: 2, quotes: allQuotes }
-                            };
-                            console.log('[WS] Handshake Combined Sub:', JSON.stringify(payload));
-                            ws.current.send(JSON.stringify(payload));
-
-                            // Ensure persistence
-                            allQuotes.forEach(q => activeSubscriptions.current.set(String(q.Tkn), q));
-                            pendingSubs.current = [];
+                                Data: { SubType: true, FeedType: 2, quotes: depthTokens }
+                            }));
+                            console.log('[WS] Subscribed to Depth (FT2):', depthTokens.length);
+                            depthTokens.forEach(q => activeSubscriptions.current.set(String(q.Tkn), q));
                         }
+
+                        // Send Index/Touchline Sub
+                        if (indexTokens.length > 0) {
+                            ws.current.send(JSON.stringify({
+                                Type: "TokenRequest",
+                                Data: { SubType: true, FeedType: 1, quotes: indexTokens }
+                            }));
+                            console.log('[WS] Subscribed to Index/Touchline (FT1):', indexTokens.map(t => t.Tkn));
+                            indexTokens.forEach(q => activeSubscriptions.current.set(String(q.Tkn), q));
+                        }
+
+                        pendingSubs.current = [];
 
                         if (hbInterval.current) clearInterval(hbInterval.current);
                         hbInterval.current = setInterval(() => {
@@ -105,26 +124,41 @@ export const useMarketData = (enabled = true, onMessage = null, onDepthPacket = 
                     return;
                 }
 
-                // 2. Buffer ONLY Depth Data (Ignore unsolicited IndexData)
-                if ((Type === 'Depth' || Type === 'DepthData') && Data) {
+                // 2. Buffer Depth & Index Data
+                if ((Type === 'Depth' || Type === 'DepthData' || Type === 'IndexData') && Data) {
 
-                    // Direct Audio Link: Emit immediately for low-latency alerts
-                    if (onDepthPacketRef.current) {
-                        onDepthPacketRef.current(Data);
-                    }
+                    // Normalize Data to Array for uniform processing
+                    const packets = Array.isArray(Data) ? Data : [Data];
 
-                    const token = Data.Tkn || Data.Token;
-                    if (token) {
-                        const tknStr = String(token);
-                        lastPacketTimes.current.set(tknStr, Date.now());
-                        depthBuffer.current[tknStr] = {
-                            ...Data,
-                            _receivedAt: Date.now()
-                        };
+                    packets.forEach(packet => {
+                        let token = packet.Tkn || packet.Token;
 
-                        // Telemetry tracking
-                        packetRates.current[tknStr] = (packetRates.current[tknStr] || 0) + 1;
-                    }
+                        // IndexData usually has Symbol but no Token. Map them back.
+                        if (!token && Type === 'IndexData' && packet.Symbol) {
+                            const sym = packet.Symbol.toUpperCase();
+                            if (sym === 'NIFTY50' || sym === 'NIFTY 50') token = '26000';
+                            if (sym === 'NIFTYBANK' || sym === 'BANKNIFTY') token = '26009';
+                            if (sym === 'SENSEX') token = '1';
+                        }
+
+                        if (token) {
+                            const tknStr = String(token);
+                            lastPacketTimes.current.set(tknStr, Date.now());
+                            depthBuffer.current[tknStr] = {
+                                ...packet,
+                                _type: Type, // Help UI distinguish
+                                _receivedAt: Date.now()
+                            };
+
+                            // Direct Audio Link (only for Depth)
+                            if ((Type === 'Depth' || Type === 'DepthData') && onDepthPacketRef.current) {
+                                onDepthPacketRef.current(packet);
+                            }
+
+                            // Telemetry tracking
+                            packetRates.current[tknStr] = (packetRates.current[tknStr] || 0) + 1;
+                        }
+                    });
                     return;
                 }
 
@@ -140,7 +174,7 @@ export const useMarketData = (enabled = true, onMessage = null, onDepthPacket = 
                 }
 
                 // 3. Early ignore for high-volume packets
-                const ignoredTypes = ['IndexData', 'Touchline', 'Quote'];
+                const ignoredTypes = ['Touchline', 'Quote'];
                 if (ignoredTypes.includes(Type)) return;
 
                 // 4. User callback for management pulses
