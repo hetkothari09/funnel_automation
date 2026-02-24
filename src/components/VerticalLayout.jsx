@@ -9,9 +9,15 @@ function cn(...inputs) {
     return twMerge(clsx(inputs));
 }
 
-const LogRow = memo(React.forwardRef(({ log, token, side }, ref) => {
+const LogRow = memo(React.forwardRef(({ log, token, side, timeTick }, ref) => {
     const isBuy = side === 'buy';
-    const timeStr = new Date(log.timestamp).toLocaleTimeString('en-GB', { hour12: false });
+
+    // Calculate relative timer
+    const elapsed = log.timestamp ? Math.floor((Date.now() - log.timestamp) / 1000) : 0;
+    const mins = Math.floor(elapsed / 60);
+    const secs = elapsed % 60;
+    const timerStr = `(${mins}:${secs.toString().padStart(2, '0')})`;
+
     const isHighQty = log.observedQty > 90000;
 
     return (
@@ -26,7 +32,7 @@ const LogRow = memo(React.forwardRef(({ log, token, side }, ref) => {
         >
             {isBuy ? (
                 <>
-                    <span className="text-[9px] text-white/40 font-mono w-[40px] shrink-0">{timeStr}</span>
+                    <span className="text-[10px] text-blue-400 font-bold font-mono w-[38px] shrink-0">{timerStr}</span>
                     <span className={cn(
                         "font-mono flex-1 text-center transition-all duration-300",
                         isHighQty ? "text-amber-400 font-black text-[14.5px] drop-shadow-[0_0_8px_rgba(251,191,36,0.4)]" : "text-emerald-400 font-bold text-[12px]"
@@ -40,16 +46,17 @@ const LogRow = memo(React.forwardRef(({ log, token, side }, ref) => {
                         "font-mono flex-1 text-center transition-all duration-300",
                         isHighQty ? "text-amber-400 font-black text-[14.5px] drop-shadow-[0_0_8px_rgba(251,191,36,0.4)]" : "text-red-400 font-bold text-[12px]"
                     )}>{log.observedQty}</span>
-                    <span className="text-[9px] text-white/40 font-mono w-[40px] shrink-0 text-right">{timeStr}</span>
+                    <span className="text-[10px] text-blue-400 font-bold font-mono w-[38px] shrink-0 text-right">{timerStr}</span>
                 </>
             )}
         </motion.div>
     );
 }), (prev, next) => {
-    return prev.log.id === next.log.id;
+    // Re-render if log changes OR if the timer needs to update (every second)
+    return prev.log.id === next.log.id && prev.timeTick === next.timeTick;
 });
 
-const DraggableColumn = ({ token, isAtm, onDragStateChange, logs, onRemove, onUpdateQty, onUpdateStrike, onUpdateType, onUpdateWidth, onClearLogs }) => {
+const DraggableColumn = ({ token, isAtm, onDragStateChange, logs, onRemove, onUpdateQty, onUpdateStrike, onUpdateType, onUpdateWidth, onClearLogs, timeTick }) => {
     const controls = useDragControls();
     const columnWidth = token.width || 300;
 
@@ -65,7 +72,7 @@ const DraggableColumn = ({ token, isAtm, onDragStateChange, logs, onRemove, onUp
 
         const handlePointerMove = (moveEvent) => {
             const delta = moveEvent.pageX - startX;
-            const newWidth = Math.min(320, Math.max(280, startWidth + delta));
+            const newWidth = Math.min(320, Math.max(240, startWidth + delta));
             onUpdateWidth(newWidth);
         };
 
@@ -151,7 +158,7 @@ const DraggableColumn = ({ token, isAtm, onDragStateChange, logs, onRemove, onUp
             style={{
                 flex: `0 0 ${columnWidth}px`, // Strictly respect the width to prevent overlap
                 maxWidth: 320,
-                minWidth: 280
+                minWidth: 240
             }}
             className={cn(
                 "h-full flex flex-col bg-[#0f1115] border rounded-lg shadow-xl transition-[border-color,box-shadow,flex-basis] duration-500 relative",
@@ -279,7 +286,7 @@ const DraggableColumn = ({ token, isAtm, onDragStateChange, logs, onRemove, onUp
                     <div className="flex-1 overflow-y-auto p-1 scrollbar-thin [&::-webkit-scrollbar]:w-1">
                         <AnimatePresence initial={false} mode='popLayout'>
                             {logs.filter(l => l.side === 'buy').slice(0, 250).map((log) => (
-                                <LogRow key={log.id} log={log} token={token} side="buy" />
+                                <LogRow key={log.id} log={log} token={token} side="buy" timeTick={timeTick} />
                             ))}
                         </AnimatePresence>
                     </div>
@@ -300,7 +307,7 @@ const DraggableColumn = ({ token, isAtm, onDragStateChange, logs, onRemove, onUp
                     <div className="flex-1 overflow-y-auto p-1 scrollbar-thin [&::-webkit-scrollbar]:w-1">
                         <AnimatePresence initial={false} mode='popLayout'>
                             {logs.filter(l => l.side === 'sell').slice(0, 250).map((log) => (
-                                <LogRow key={log.id} log={log} token={token} side="sell" />
+                                <LogRow key={log.id} log={log} token={token} side="sell" timeTick={timeTick} />
                             ))}
                         </AnimatePresence>
                     </div>
@@ -331,7 +338,14 @@ const VerticalLayout = ({
     const [globalIndex, setGlobalIndex] = useState('NIFTY');
     const [globalExpiry, setGlobalExpiry] = useState('');
     const [atmStrike, setAtmStrike] = useState(null);
+    const [timeTick, setTimeTick] = useState(0);
     const isDraggingRef = useRef(false);
+
+    // Live Timer Tick
+    useEffect(() => {
+        const interval = setInterval(() => setTimeTick(t => t + 1), 1000);
+        return () => clearInterval(interval);
+    }, []);
 
     // --- Spot Price & ATM Logic ---
     useEffect(() => {
@@ -499,6 +513,7 @@ const VerticalLayout = ({
                                 key={token.id}
                                 token={token}
                                 isAtm={isAtm}
+                                timeTick={timeTick}
                                 onDragStateChange={(val) => (isDraggingRef.current = val)}
                                 logs={logs.filter(l => l.tokenId === token.id || l.tokenId === token.tkn)}
                                 onRemove={() => onRemoveToken(token.id)}
