@@ -18,7 +18,7 @@ const LogRow = memo(React.forwardRef(({ log, token, side, timeTick }, ref) => {
     const secs = elapsed % 60;
     const timerStr = `(${mins}:${secs.toString().padStart(2, '0')})`;
 
-    const isHighQty = log.observedQty >= 100000;
+    const isHighQty = log.observedQty >= 90000;
 
     return (
         <motion.div
@@ -35,13 +35,13 @@ const LogRow = memo(React.forwardRef(({ log, token, side, timeTick }, ref) => {
                     <span className="text-[10px] text-blue-400 font-bold font-mono whitespace-nowrap shrink-0">{timerStr}</span>
                     <span className={cn(
                         "font-mono flex-1 text-center whitespace-nowrap min-w-0 truncate transition-all duration-300",
-                        isHighQty ? "text-amber-400 font-black text-[14.5px] drop-shadow-[0_0_8px_rgba(251,191,36,0.4)] tracking-tighter" : "text-emerald-400 font-bold text-[12px]"
+                        isHighQty ? "text-amber-400 font-black text-[14.5px] drop-shadow-[0_0_8px_rgba(251,191,36,0.6)] tracking-tighter" : "text-emerald-400 font-bold text-[12px]"
                     )}>{log.observedQty}</span>
                     <span className={cn(
                         "font-mono whitespace-nowrap shrink-0 text-right transition-all duration-300",
                         isHighQty
-                            ? "text-violet-400 font-black text-[12.5px] drop-shadow-[0_0_10px_rgba(167,139,250,0.6)]"
-                            : "text-slate-300 font-bold text-[10.5px] drop-shadow-[0_0_4px_rgba(255,255,255,0.1)]"
+                            ? "text-violet-200 font-black text-[12.5px] drop-shadow-[0_0_12px_rgba(167,139,250,1)]"
+                            : "text-violet-300 font-bold text-[11px]"
                     )}>{Number(log.price).toFixed(2)}</span>
                 </>
             ) : (
@@ -49,12 +49,12 @@ const LogRow = memo(React.forwardRef(({ log, token, side, timeTick }, ref) => {
                     <span className={cn(
                         "font-mono whitespace-nowrap shrink-0 text-left transition-all duration-300",
                         isHighQty
-                            ? "text-violet-400 font-black text-[12.5px] drop-shadow-[0_0_10px_rgba(167,139,250,0.6)]"
-                            : "text-slate-300 font-bold text-[10.5px] drop-shadow-[0_0_4px_rgba(255,255,255,0.1)]"
+                            ? "text-violet-200 font-black text-[12.5px] drop-shadow-[0_0_12px_rgba(167,139,250,1)]"
+                            : "text-violet-300 font-bold text-[11px]"
                     )}>{Number(log.price).toFixed(2)}</span>
                     <span className={cn(
                         "font-mono flex-1 text-center whitespace-nowrap min-w-0 truncate transition-all duration-300",
-                        isHighQty ? "text-amber-400 font-black text-[14.5px] drop-shadow-[0_0_8px_rgba(251,191,36,0.4)] tracking-tighter" : "text-red-400 font-bold text-[12px]"
+                        isHighQty ? "text-amber-400 font-black text-[14.5px] drop-shadow-[0_0_8px_rgba(251,191,36,0.6)] tracking-tighter" : "text-red-400 font-bold text-[12px]"
                     )}>{log.observedQty}</span>
                     <span className="text-[10px] text-blue-400 font-bold font-mono whitespace-nowrap shrink-0 text-right">{timerStr}</span>
                 </>
@@ -344,7 +344,7 @@ const DraggableColumn = ({ token, isAtm, onDragStateChange, logs, onRemove, onUp
                                     <span className="text-[10px] font-black text-emerald-400/80">{netBuyData.total.toLocaleString()}</span>
                                 </div>
                                 {netBuyData.breakdown.length === 0 ? (
-                                    <div className="text-[10px] text-white/10 text-center py-2 italic font-medium">No 1L+ Pulses</div>
+                                    <div className="text-[10px] text-white/10 text-center py-2 italic font-medium">No 1L+ Qty</div>
                                 ) : (
                                     netBuyData.breakdown.map((item, idx) => (
                                         <div key={idx} className="flex items-center justify-between text-[11px] font-mono group/item">
@@ -399,7 +399,7 @@ const DraggableColumn = ({ token, isAtm, onDragStateChange, logs, onRemove, onUp
                                     <span className="text-[10px] font-black text-red-400/80">{netSellData.total.toLocaleString()}</span>
                                 </div>
                                 {netSellData.breakdown.length === 0 ? (
-                                    <div className="text-[10px] text-white/10 text-center py-2 italic font-medium">No 1L+ Pulses</div>
+                                    <div className="text-[10px] text-white/10 text-center py-2 italic font-medium">No 1L+ Qty</div>
                                 ) : (
                                     netSellData.breakdown.map((item, idx) => (
                                         <div key={idx} className="flex items-center justify-between text-[11px] font-mono group/item">
