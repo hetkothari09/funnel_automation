@@ -135,6 +135,14 @@ const MonitorDashboard = ({
         const saved = localStorage.getItem(`mt_show_all_prices_${id}`);
         return saved ? JSON.parse(saved) : false;
     });
+    const [autoOrderThreshold, setAutoOrderThreshold] = useState(() => {
+        const saved = localStorage.getItem(`mt_auto_order_threshold_${id}`);
+        return saved ? JSON.parse(saved) : 90000;
+    });
+    const [isAutomationEnabled, setIsAutomationEnabled] = useState(() => {
+        const saved = localStorage.getItem(`mt_is_automation_enabled_${id}`);
+        return saved ? JSON.parse(saved) : false;
+    });
 
     // --- Persistence ---
     useEffect(() => {
@@ -148,6 +156,14 @@ const MonitorDashboard = ({
     useEffect(() => {
         localStorage.setItem(`mt_show_all_prices_${id}`, JSON.stringify(showAllPrices));
     }, [showAllPrices, id]);
+
+    useEffect(() => {
+        localStorage.setItem(`mt_auto_order_threshold_${id}`, JSON.stringify(autoOrderThreshold));
+    }, [autoOrderThreshold, id]);
+
+    useEffect(() => {
+        localStorage.setItem(`mt_is_automation_enabled_${id}`, JSON.stringify(isAutomationEnabled));
+    }, [isAutomationEnabled, id]);
 
     // --- Subscription Management ---
     // Resubscribe on mount/reload if tokens exist
@@ -310,8 +326,9 @@ const MonitorDashboard = ({
                             if (observedQty >= item.quantity) {
                                 addGlobalNotification({ ...details, id: logId });
 
-                                // MegaTrader automation: 90k threshold
-                                if (observedQty >= 90000) {
+                                // MegaTrader automation: dynamic threshold & Master Toggle
+                                if (isAutomationEnabled && observedQty >= autoOrderThreshold) {
+                                    console.log(`[MegaTrader] Auto-triggering order for ${observedQty} @ ${price} (Threshold: ${autoOrderThreshold})`);
                                     megaTraderAPI.triggerOrder(details);
                                 }
                             }
@@ -322,7 +339,7 @@ const MonitorDashboard = ({
         }, 100);
 
         return () => clearInterval(pollInterval);
-    }, [monitoredTokens, showAllPrices, addGlobalNotification, status]);
+    }, [monitoredTokens, showAllPrices, addGlobalNotification, status, autoOrderThreshold, isAutomationEnabled]);
 
     // --- Log Retention & Cleanup ---
     useEffect(() => {
@@ -470,6 +487,10 @@ const MonitorDashboard = ({
                     onReorderTokens={setMonitoredTokens} // Pass drag-and-drop handler
                     isSidebarVisible={isSidebarVisible}
                     depthData={depthData}
+                    autoOrderThreshold={autoOrderThreshold}
+                    onUpdateThreshold={setAutoOrderThreshold}
+                    isAutomationEnabled={isAutomationEnabled}
+                    onToggleAutomation={setIsAutomationEnabled}
                 />
             )}
         </div>

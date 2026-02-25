@@ -2,9 +2,9 @@ class MegaTraderAPI {
     constructor() {
         // API Configuration - currently pointing to placeholder/local for testing
         // Update this URL with the actual MegaTrader endpoint when available
-        this.baseUrl = 'http://localhost/api/PublicAPI';
-        this.loginId = 'your_login_id_here';
-        this.password = 'your_password_here';
+        this.baseUrl = ' http://192.168.6.164:16006';
+        this.loginId = 'DILIP';
+        this.password = 'a@4444444444';
 
         // Session state
         this.uniqueId = 0;
@@ -20,7 +20,7 @@ class MegaTraderAPI {
     async login() {
         try {
             console.log(`[MegaTrader] Attempting login...`);
-            const response = await fetch(`${this.baseUrl}/LoginRequest`, {
+            const response = await fetch(`${this.baseUrl}/api/PublicAPI/LoginRequest`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -79,7 +79,7 @@ class MegaTraderAPI {
 
         try {
             console.log('[MegaTrader] Placing Order with payload:', payload);
-            const response = await fetch(`${this.baseUrl}/OrderEntry`, {
+            const response = await fetch(`${this.baseUrl}/api/PublicAPI/OrderEntry`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)

@@ -35,13 +35,13 @@ const LogRow = memo(React.forwardRef(({ log, token, side, timeTick }, ref) => {
                     <span className="text-[10px] text-blue-400 font-bold font-mono whitespace-nowrap shrink-0">{timerStr}</span>
                     <span className={cn(
                         "font-mono flex-1 text-center whitespace-nowrap min-w-0 truncate transition-all duration-300",
-                        isHighQty ? "text-amber-400 font-black text-[14.5px] drop-shadow-[0_0_8px_rgba(251,191,36,0.6)] tracking-tighter" : "text-emerald-400 font-bold text-[12px]"
+                        isHighQty ? "text-amber-400 font-black text-[14.5px] drop-shadow-[0_0_8px_rgba(251,191,36,0.6)] tracking-tighter" : "text-emerald-400 font-bold text-[14px]"
                     )}>{log.observedQty}</span>
                     <span className={cn(
                         "font-mono whitespace-nowrap shrink-0 text-right transition-all duration-300",
                         isHighQty
-                            ? "text-violet-200 font-black text-[12.5px] drop-shadow-[0_0_12px_rgba(167,139,250,1)]"
-                            : "text-violet-300 font-bold text-[11px]"
+                            ? "text-violet-200 font-black text-[14.5px] drop-shadow-[0_0_12px_rgba(167,139,250,1)]"
+                            : "text-violet-300 font-bold text-[13px]"
                     )}>{Number(log.price).toFixed(2)}</span>
                 </>
             ) : (
@@ -49,12 +49,12 @@ const LogRow = memo(React.forwardRef(({ log, token, side, timeTick }, ref) => {
                     <span className={cn(
                         "font-mono whitespace-nowrap shrink-0 text-left transition-all duration-300",
                         isHighQty
-                            ? "text-violet-200 font-black text-[12.5px] drop-shadow-[0_0_12px_rgba(167,139,250,1)]"
-                            : "text-violet-300 font-bold text-[11px]"
+                            ? "text-violet-200 font-black text-[14.5px] drop-shadow-[0_0_12px_rgba(167,139,250,1)]"
+                            : "text-violet-300 font-bold text-[13px]"
                     )}>{Number(log.price).toFixed(2)}</span>
                     <span className={cn(
                         "font-mono flex-1 text-center whitespace-nowrap min-w-0 truncate transition-all duration-300",
-                        isHighQty ? "text-amber-400 font-black text-[14.5px] drop-shadow-[0_0_8px_rgba(251,191,36,0.6)] tracking-tighter" : "text-red-400 font-bold text-[12px]"
+                        isHighQty ? "text-amber-400 font-black text-[14.5px] drop-shadow-[0_0_8px_rgba(251,191,36,0.6)] tracking-tighter" : "text-red-400 font-bold text-[13px]"
                     )}>{log.observedQty}</span>
                     <span className="text-[10px] text-blue-400 font-bold font-mono whitespace-nowrap shrink-0 text-right">{timerStr}</span>
                 </>
@@ -104,7 +104,7 @@ const DraggableColumn = ({ token, isAtm, onDragStateChange, logs, onRemove, onUp
 
         const handlePointerMove = (moveEvent) => {
             const delta = moveEvent.pageX - startX;
-            const newWidth = Math.min(320, Math.max(240, startWidth + delta));
+            const newWidth = Math.min(350, Math.max(240, startWidth + delta));
             onUpdateWidth(newWidth);
         };
 
@@ -189,7 +189,7 @@ const DraggableColumn = ({ token, isAtm, onDragStateChange, logs, onRemove, onUp
             whileDrag={{ scale: 1.02, zIndex: 50 }}
             style={{
                 flex: `0 0 ${columnWidth}px`, // Strictly respect the width to prevent overlap
-                maxWidth: 320,
+                maxWidth: 400,
                 minWidth: 240
             }}
             className={cn(
@@ -433,7 +433,11 @@ const VerticalLayout = ({
     onReorderTokens, // Destructure new prop
     isSidebarVisible, // New prop
     depthData, // Need depthData to get Spot Prices
-    onClearLogs // New prop
+    onClearLogs, // New prop
+    autoOrderThreshold,
+    onUpdateThreshold,
+    isAutomationEnabled,
+    onToggleAutomation
 }) => {
     // --- Top Bar State (Unchanged) ---
     const [globalIndex, setGlobalIndex] = useState('NIFTY');
@@ -442,6 +446,40 @@ const VerticalLayout = ({
     const [timeTick, setTimeTick] = useState(0);
     const [showNetQtyBreakdown, setShowNetQtyBreakdown] = useState(false);
     const isDraggingRef = useRef(false);
+    const scrollContainerRef = useRef(null);
+
+    // --- Threshold Control State ---
+    const [tempThreshold, setTempThreshold] = useState(autoOrderThreshold);
+
+    // Sync temp state if global changes (e.g. on mount)
+    useEffect(() => {
+        setTempThreshold(autoOrderThreshold);
+    }, [autoOrderThreshold]);
+
+    // --- Horizontal Auto-Scroll Logic ---
+    useEffect(() => {
+        const el = scrollContainerRef.current;
+        if (!el) return;
+
+        const handleWheel = (e) => {
+            // Only convert vertical wheel to horizontal if we aren't hovering over 
+            // a vertically scrollable element (like the log columns)
+            if (e.deltaY !== 0) {
+                const isOverScrollable = e.target.closest('.overflow-y-auto');
+
+                // Special check: If we're over the log column but it's already scrolled to the bottom/top, 
+                // we could optionally allow layout scrolling, but for now let's keep it simple:
+                // Only scroll layout if NOT over a scrollable log container.
+                if (!isOverScrollable) {
+                    e.preventDefault();
+                    el.scrollLeft += e.deltaY;
+                }
+            }
+        };
+
+        el.addEventListener('wheel', handleWheel, { passive: false });
+        return () => el.removeEventListener('wheel', handleWheel);
+    }, []);
 
     // Live Timer Tick
     useEffect(() => {
@@ -611,6 +649,44 @@ const VerticalLayout = ({
                         </button>
                     </div>
 
+                    <div className="flex items-center gap-2 bg-white/5 px-2 py-1 rounded border border-white/10 h-7 ml-auto">
+                        <label className="text-[10px] text-white/40 uppercase font-black tracking-tight">Auto-Order</label>
+                        <input
+                            type="number"
+                            value={tempThreshold}
+                            onChange={(e) => setTempThreshold(e.target.value)}
+                            className="bg-transparent border-none text-[11px] font-bold text-blue-400 w-16 focus:outline-none text-right [&::-webkit-inner-spin-button]:appearance-none"
+                            placeholder="Qty"
+                        />
+                        <button
+                            onClick={() => onUpdateThreshold(parseInt(tempThreshold) || 0)}
+                            className={cn(
+                                "text-[9px] font-bold px-1.5 py-0.5 rounded transition-colors",
+                                parseInt(tempThreshold) !== autoOrderThreshold
+                                    ? "bg-blue-600 text-white hover:bg-blue-500"
+                                    : "bg-white/5 text-white/40 cursor-default"
+                            )}
+                        >
+                            Set
+                        </button>
+                    </div>
+
+                    <div className="flex items-center gap-2 bg-white/5 px-2 py-1 rounded border border-white/10 h-7">
+                        <label className="text-[10px] text-white/40 uppercase font-black tracking-tight">Automation</label>
+                        <button
+                            onClick={() => onToggleAutomation(!isAutomationEnabled)}
+                            className={cn(
+                                "w-7 h-4 rounded-full relative transition-colors duration-300",
+                                isAutomationEnabled ? "bg-red-500" : "bg-white/10"
+                            )}
+                        >
+                            <div className={cn(
+                                "absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform duration-300 shadow-sm",
+                                isAutomationEnabled ? "translate-x-3" : "translate-x-0"
+                            )} />
+                        </button>
+                    </div>
+
                     <button onClick={onClearTokens} className="bg-red-500/10 text-red-500 hover:bg-red-500/20 border border-red-500/20 font-bold py-1 px-3 rounded text-[10px] h-7 flex items-center gap-2">
                         <Trash2 size={10} /> Clear
                     </button>
@@ -618,7 +694,10 @@ const VerticalLayout = ({
             )}
 
             {/* Main Content with Reorder.Group */}
-            <div className="flex-1 overflow-x-auto overflow-y-hidden p-2 relative">
+            <div
+                ref={scrollContainerRef}
+                className="flex-1 overflow-x-auto overflow-y-hidden p-2 relative"
+            >
                 <Reorder.Group
                     axis="x"
                     values={monitoredTokens}
