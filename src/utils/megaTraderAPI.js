@@ -51,13 +51,13 @@ class MegaTraderAPI {
     }
 
     async placeOrder({ tokenNo, buySell, qty, price, gateway = 'NSEFO', exchange = 'NSEFO', clientCode = '' }) {
-        // if (!this.isLoggedIn) {
-        //     const success = await this.login();
-        //     if (!success) {
-        //         console.error('[MegaTrader] Cannot place order, login sequence failed.');
-        //         return;
-        //     }
-        // }
+        if (!this.isLoggedIn) {
+            const success = await this.login();
+            if (!success) {
+                console.error('[MegaTrader] Cannot place order, login sequence failed.');
+                return;
+            }
+        }
 
         const payload = {
             Uniqueid: this.uniqueId,

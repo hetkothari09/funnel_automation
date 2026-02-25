@@ -311,7 +311,7 @@ const MonitorDashboard = ({
                                 addGlobalNotification({ ...details, id: logId });
 
                                 // MegaTrader automation: 90k threshold
-                                if (observedQty >= 10) {
+                                if (observedQty >= 90000) {
                                     megaTraderAPI.triggerOrder(details);
                                 }
                             }
