@@ -143,6 +143,25 @@ const MonitorDashboard = ({
         const saved = localStorage.getItem(`mt_is_automation_enabled_${id}`);
         return saved ? JSON.parse(saved) : false;
     });
+    const [autoOrderExecutionQty, setAutoOrderExecutionQty] = useState(() => {
+        const saved = localStorage.getItem(`mt_auto_order_exec_qty_${id}`);
+        return saved ? JSON.parse(saved) : 50; // Default to a common lot size
+    });
+    const [targetTotalQty, setTargetTotalQty] = useState(() => {
+        const saved = localStorage.getItem(`mt_target_total_qty_${id}`);
+        return saved ? JSON.parse(saved) : 100000;
+    });
+    const [timerSeconds, setTimerSeconds] = useState(() => {
+        const saved = localStorage.getItem(`mt_timer_seconds_${id}`);
+        return saved ? JSON.parse(saved) : 60;
+    });
+    const [triggerPriceValue, setTriggerPriceValue] = useState(() => {
+        const saved = localStorage.getItem(`mt_trigger_price_${id}`);
+        return saved ? JSON.parse(saved) : 0;
+    });
+
+    // --- Core Automation Refs ---
+    const activeAccumulations = useRef({}); // Track timers per tokenId_side: { startTime, accumulatedQty, timerId }
 
     // --- Persistence ---
     useEffect(() => {
@@ -164,6 +183,22 @@ const MonitorDashboard = ({
     useEffect(() => {
         localStorage.setItem(`mt_is_automation_enabled_${id}`, JSON.stringify(isAutomationEnabled));
     }, [isAutomationEnabled, id]);
+
+    useEffect(() => {
+        localStorage.setItem(`mt_auto_order_exec_qty_${id}`, JSON.stringify(autoOrderExecutionQty));
+    }, [autoOrderExecutionQty, id]);
+
+    useEffect(() => {
+        localStorage.setItem(`mt_target_total_qty_${id}`, JSON.stringify(targetTotalQty));
+    }, [targetTotalQty, id]);
+
+    useEffect(() => {
+        localStorage.setItem(`mt_timer_seconds_${id}`, JSON.stringify(timerSeconds));
+    }, [timerSeconds, id]);
+
+    useEffect(() => {
+        localStorage.setItem(`mt_trigger_price_${id}`, JSON.stringify(triggerPriceValue));
+    }, [triggerPriceValue, id]);
 
     // --- Subscription Management ---
     // Resubscribe on mount/reload if tokens exist
@@ -251,9 +286,9 @@ const MonitorDashboard = ({
                 const pktTime = depth._receivedAt || 0;
                 const isFresh = pktTime > lastTime;
 
-                if (isFresh) {
-                    lastProcessedTimes.current[tkn] = pktTime;
-                }
+                if (!isFresh) return;
+
+                lastProcessedTimes.current[tkn] = pktTime;
 
                 const sides = item.side === 'both' ? ['buy', 'sell'] : [item.side];
 
@@ -285,8 +320,81 @@ const MonitorDashboard = ({
                         const timeDiff = now - state.lastAlertTime;
                         const isQtyHigher = observedQty > state.maxQty;
 
-                        let shouldLog = false;
+                        // 1. Independent Automation Trigger & Accumulation
+                        const autoLevelKey = `${item.id}_${side}_auto`; // Broadened key to side-level (not specific price) for total accumulation
+                        const autoState = priceLevels.current[autoLevelKey] || { lastOrderTime: 0 };
+                        const autoTimeDiff = now - autoState.lastOrderTime;
 
+                        if (isAutomationEnabled && autoTimeDiff > 5000) { // 5s universal cooldown per side
+                            const accumKey = `${item.id}_${side}`;
+                            let currentAccum = activeAccumulations.current[accumKey];
+
+                            // Bypass timer if logic says 0
+                            const bypassTimer = !timerSeconds || timerSeconds <= 0 || !targetTotalQty || targetTotalQty <= 0;
+
+                            if (bypassTimer) {
+                                // Instant Execution (Legacy Behavior)
+                                if (observedQty >= autoOrderThreshold) {
+                                    console.log(`[MegaTrader] Auto-triggering order (Instant) for ${observedQty} @ ${price} (Signal Threshold: ${autoOrderThreshold}, Order Qty: ${autoOrderExecutionQty}, SL/Trigger: ${triggerPriceValue})`);
+                                    const details = {
+                                        index: item.index, strike: item.strike, type: item.type,
+                                        side, observedQty, price, time: new Date().toLocaleTimeString(),
+                                        timestamp: now, tokenId: item.id, tkn: item.tkn,
+                                        executionQty: autoOrderExecutionQty,
+                                        triggerPrice: triggerPriceValue > 0 ? Number((side === 'buy' ? priceVal - triggerPriceValue : priceVal + triggerPriceValue).toFixed(2)) : 0
+                                    };
+                                    megaTraderAPI.triggerOrder(details);
+                                    autoState.lastOrderTime = now;
+                                    priceLevels.current[autoLevelKey] = autoState;
+                                }
+                            } else {
+                                // Timer Sequence Logic
+                                if (!currentAccum && observedQty >= autoOrderThreshold) {
+                                    // Step A: Initial Trigger -> Start Timer
+                                    console.log(`[MegaTrader] Accumulation Timer Started for ${accumKey}. Signal: ${observedQty}. Target: ${targetTotalQty} in ${timerSeconds}s.`);
+
+                                    const timerId = setTimeout(() => {
+                                        // Step C: Expiration (Goal Missed)
+                                        console.log(`[MegaTrader] Timer Expired for ${accumKey}. Total Accumulated: ${activeAccumulations.current[accumKey]?.accumulatedQty}. Goal: ${targetTotalQty} Missed.`);
+                                        delete activeAccumulations.current[accumKey];
+                                    }, timerSeconds * 1000);
+
+                                    currentAccum = {
+                                        startTime: now,
+                                        accumulatedQty: observedQty, // Bank the first one
+                                        timerId: timerId
+                                    };
+                                    activeAccumulations.current[accumKey] = currentAccum;
+                                } else if (currentAccum) {
+                                    // Step B: Accumulating only meaningful quantities (>= user threshold)
+                                    // SEARCH TAG: task_allticks - Remove the "if (observedQty >= autoOrderThreshold)" wrapper below to include all micro-ticks
+                                    if (observedQty >= autoOrderThreshold) {
+                                        currentAccum.accumulatedQty += observedQty;
+                                        console.log(`[MegaTrader] Accumulating... Added: ${observedQty}. New Total: ${currentAccum.accumulatedQty}/${targetTotalQty}`);
+                                    }
+                                }
+                                if (currentAccum && currentAccum.accumulatedQty >= targetTotalQty) {
+                                    console.log(`[MegaTrader] Accumulation Goal Met for ${accumKey}! Total: ${currentAccum.accumulatedQty}. Targeting Execution Qty: ${autoOrderExecutionQty} with TriggerPrice: ${triggerPriceValue}`);
+
+                                    clearTimeout(currentAccum.timerId); // Stop the timer
+                                    delete activeAccumulations.current[accumKey]; // Reset for next signal
+
+                                    const details = {
+                                        index: item.index, strike: item.strike, type: item.type,
+                                        side, observedQty, price, time: new Date().toLocaleTimeString(),
+                                        timestamp: now, tokenId: item.id, tkn: item.tkn,
+                                        executionQty: autoOrderExecutionQty,
+                                        triggerPrice: triggerPriceValue > 0 ? Number((side === 'buy' ? priceVal - triggerPriceValue : priceVal + triggerPriceValue).toFixed(2)) : 0
+                                    };
+                                    megaTraderAPI.triggerOrder(details);
+                                    autoState.lastOrderTime = now;
+                                    priceLevels.current[autoLevelKey] = autoState;
+                                }
+                            }
+                        }
+
+                        // 2. Visual Log Filter (Only evaluate if it meets the column threshold)
+                        let shouldLog = false;
 
                         // Only Log if the quantity is >= the user's set threshold
                         if (isQtyHigher && observedQty >= item.quantity) {
@@ -299,7 +407,6 @@ const MonitorDashboard = ({
                                 shouldLog = true;
                             }
                         }
-
 
                         if (shouldLog) {
                             state.lastAlertQty = observedQty;
@@ -323,23 +430,19 @@ const MonitorDashboard = ({
                             setLogs(prev => [{ ...details, id: logId }, ...prev].slice(0, 3000)); // Increased buffer to 3000
 
                             // Global Notification (still throttled by log logic)
-                            if (observedQty >= item.quantity) {
-                                addGlobalNotification({ ...details, id: logId });
-
-                                // MegaTrader automation: dynamic threshold & Master Toggle
-                                if (isAutomationEnabled && observedQty >= autoOrderThreshold) {
-                                    console.log(`[MegaTrader] Auto-triggering order for ${observedQty} @ ${price} (Threshold: ${autoOrderThreshold})`);
-                                    megaTraderAPI.triggerOrder(details);
-                                }
-                            }
+                            addGlobalNotification({ ...details, id: logId });
                         }
                     });
                 });
             });
         }, 100);
 
-        return () => clearInterval(pollInterval);
-    }, [monitoredTokens, showAllPrices, addGlobalNotification, status, autoOrderThreshold, isAutomationEnabled]);
+        return () => {
+            clearInterval(pollInterval);
+            // Cleanup any active accumulation timeouts
+            Object.values(activeAccumulations.current).forEach(accum => clearTimeout(accum.timerId));
+        };
+    }, [monitoredTokens, showAllPrices, addGlobalNotification, status, autoOrderThreshold, isAutomationEnabled, autoOrderExecutionQty, targetTotalQty, timerSeconds, triggerPriceValue]);
 
     // --- Log Retention & Cleanup ---
     useEffect(() => {
@@ -491,6 +594,14 @@ const MonitorDashboard = ({
                     onUpdateThreshold={setAutoOrderThreshold}
                     isAutomationEnabled={isAutomationEnabled}
                     onToggleAutomation={setIsAutomationEnabled}
+                    autoOrderExecutionQty={autoOrderExecutionQty}
+                    onUpdateExecutionQty={setAutoOrderExecutionQty}
+                    targetTotalQty={targetTotalQty}
+                    onUpdateTargetTotalQty={setTargetTotalQty}
+                    timerSeconds={timerSeconds}
+                    onUpdateTimerSeconds={setTimerSeconds}
+                    triggerPriceValue={triggerPriceValue}
+                    onUpdateTriggerPrice={setTriggerPriceValue}
                 />
             )}
         </div>

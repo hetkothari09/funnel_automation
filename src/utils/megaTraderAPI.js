@@ -50,7 +50,7 @@ class MegaTraderAPI {
         }
     }
 
-    async placeOrder({ tokenNo, buySell, qty, price, gateway = 'NSEFO', exchange = 'NSEFO', clientCode = '' }) {
+    async placeOrder({ tokenNo, buySell, qty, price, triggerPrice = 0, gateway = 'NSEFO', exchange = 'NSEFO', clientCode = '' }) {
         if (!this.isLoggedIn) {
             const success = await this.login();
             if (!success) {
@@ -69,10 +69,10 @@ class MegaTraderAPI {
             clientcode: clientCode,
             Buysell: String(buySell).toUpperCase(), // EXPECTED: BUY or SELL
             qty: Number(qty),                       // DECIMAL
-            qtydisclosed: Number(qty),              // DECIMAL
+            qtydisclosed: 0,                        // DECIMAL (set to 0 to avoid lot validation errors on disclosed qty)
             Price: Number(price),                   // DECIMAL
-            Triggerprice: 0,                        // DECIMAL
-            Booktype: 'RL',                         // Default to Regular Lot
+            Triggerprice: Number(triggerPrice) || 0,                        // DECIMAL
+            Booktype: Number(triggerPrice) > 0 ? 'SL' : 'RL',               // Stop Loss if Triggerprice exists
             validity: 'DAY',                        // Default to DAY
             DeliveryType: 1                         // 1 = Intraday, 0 = NORMAL
         };
@@ -99,13 +99,13 @@ class MegaTraderAPI {
 
     triggerOrder(logDetails) {
         // Ensure logDetails contains required information
-        const { side, observedQty, price, tokenId, tkn } = logDetails;
+        const { side, observedQty, price, tokenId, tkn, executionQty, triggerPrice } = logDetails;
         if (!tkn) {
             console.warn('[MegaTrader] Missing explicit contract token (tkn). Cannot place order.');
             return;
         }
 
-        const cooldownKey = `${tokenId}_${side}`; // Distinguish between buy/sell side 
+        const cooldownKey = `${tkn}_${side}`; // Distinguish between buy/sell side using token number 
         const now = Date.now();
         const lastTrigger = this.cooldowns.get(cooldownKey) || 0;
 
@@ -121,12 +121,16 @@ class MegaTraderAPI {
         // Note: Side is "buy" or "sell". We map "buy" -> "BUY". Ensure client wants observed opposite or actual, defaulting to actual side observed.
         const orderAction = side.toUpperCase();
 
+        // Define the concrete quantity to trade 
+        const tradeQuantity = executionQty || 50;
+
         // Non-blocking trigger of asynchronous login & place order 
         this.placeOrder({
             tokenNo: tkn,
             buySell: orderAction,
-            qty: observedQty, // Passing the actual big quantity observed 
+            qty: tradeQuantity, // Passing the configured fixed execution quantity
             price: price,
+            triggerPrice: triggerPrice,
             gateway: 'NSEFO',
             exchange: 'NSEFO',
             clientCode: ''

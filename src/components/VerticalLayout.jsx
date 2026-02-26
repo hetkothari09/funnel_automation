@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef, memo, useCallback } from 'react';
-import { Plus, Trash2, X, ChevronDown, Check, GripVertical, Eraser } from 'lucide-react';
+import { Plus, Trash2, X, ChevronDown, Check, GripVertical, Eraser, Settings2 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { motion, AnimatePresence, Reorder, useDragControls } from 'framer-motion';
@@ -287,7 +287,10 @@ const DraggableColumn = ({ token, isAtm, onDragStateChange, logs, onRemove, onUp
                             {token.type}
                         </button>
 
-                        <div className="flex items-center gap-1 bg-white/5 px-1.5 py-0.5 rounded border border-white/5 flex-shrink-0 h-full">
+                        <div
+                            className="flex items-center gap-1 bg-white/5 px-1.5 py-0.5 rounded border border-white/5 flex-shrink-0 h-full"
+                            title="Visual Filter: Only show logs for quantities above this value."
+                        >
                             <span className="text-[10px] text-white/30 uppercase font-bold">Q</span>
                             <input
                                 type="number"
@@ -437,7 +440,15 @@ const VerticalLayout = ({
     autoOrderThreshold,
     onUpdateThreshold,
     isAutomationEnabled,
-    onToggleAutomation
+    onToggleAutomation,
+    autoOrderExecutionQty,
+    onUpdateExecutionQty,
+    targetTotalQty,
+    onUpdateTargetTotalQty,
+    timerSeconds,
+    onUpdateTimerSeconds,
+    triggerPriceValue,
+    onUpdateTriggerPrice
 }) => {
     // --- Top Bar State (Unchanged) ---
     const [globalIndex, setGlobalIndex] = useState('NIFTY');
@@ -449,12 +460,21 @@ const VerticalLayout = ({
     const scrollContainerRef = useRef(null);
 
     // --- Threshold Control State ---
+    const [isAutomationPanelOpen, setIsAutomationPanelOpen] = useState(false);
     const [tempThreshold, setTempThreshold] = useState(autoOrderThreshold);
+    const [tempExecutionQty, setTempExecutionQty] = useState(autoOrderExecutionQty);
+    const [tempTargetQty, setTempTargetQty] = useState(targetTotalQty);
+    const [tempTimerSeconds, setTempTimerSeconds] = useState(timerSeconds);
+    const [tempTriggerPrice, setTempTriggerPrice] = useState(triggerPriceValue);
 
     // Sync temp state if global changes (e.g. on mount)
     useEffect(() => {
         setTempThreshold(autoOrderThreshold);
-    }, [autoOrderThreshold]);
+        setTempExecutionQty(autoOrderExecutionQty);
+        setTempTargetQty(targetTotalQty);
+        setTempTimerSeconds(timerSeconds);
+        setTempTriggerPrice(triggerPriceValue);
+    }, [autoOrderThreshold, autoOrderExecutionQty, targetTotalQty, timerSeconds, triggerPriceValue]);
 
     // --- Horizontal Auto-Scroll Logic ---
     useEffect(() => {
@@ -649,49 +669,177 @@ const VerticalLayout = ({
                         </button>
                     </div>
 
-                    <div className="flex items-center gap-2 bg-white/5 px-2 py-1 rounded border border-white/10 h-7 ml-auto">
-                        <label className="text-[10px] text-white/40 uppercase font-black tracking-tight">Auto-Order</label>
-                        <input
-                            type="number"
-                            value={tempThreshold}
-                            onChange={(e) => setTempThreshold(e.target.value)}
-                            className="bg-transparent border-none text-[11px] font-bold text-blue-400 w-16 focus:outline-none text-right [&::-webkit-inner-spin-button]:appearance-none"
-                            placeholder="Qty"
-                        />
-                        <button
-                            onClick={() => onUpdateThreshold(parseInt(tempThreshold) || 0)}
-                            className={cn(
-                                "text-[9px] font-bold px-1.5 py-0.5 rounded transition-colors",
-                                parseInt(tempThreshold) !== autoOrderThreshold
-                                    ? "bg-blue-600 text-white hover:bg-blue-500"
-                                    : "bg-white/5 text-white/40 cursor-default"
-                            )}
-                        >
-                            Set
-                        </button>
-                    </div>
-
-                    <div className="flex items-center gap-2 bg-white/5 px-2 py-1 rounded border border-white/10 h-7">
-                        <label className="text-[10px] text-white/40 uppercase font-black tracking-tight">Automation</label>
-                        <button
-                            onClick={() => onToggleAutomation(!isAutomationEnabled)}
-                            className={cn(
-                                "w-7 h-4 rounded-full relative transition-colors duration-300",
-                                isAutomationEnabled ? "bg-red-500" : "bg-white/10"
-                            )}
-                        >
-                            <div className={cn(
-                                "absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform duration-300 shadow-sm",
-                                isAutomationEnabled ? "translate-x-3" : "translate-x-0"
-                            )} />
-                        </button>
-                    </div>
+                    <button
+                        onClick={() => setIsAutomationPanelOpen(!isAutomationPanelOpen)}
+                        className={cn(
+                            "flex items-center gap-1.5 px-2.5 py-1 rounded border transition-colors h-7 ml-auto text-[10px] font-bold uppercase tracking-wider",
+                            isAutomationEnabled
+                                ? "bg-red-500/10 border-red-500/30 text-red-500 hover:bg-red-500/20"
+                                : "bg-white/5 border-white/10 text-white/50 hover:bg-white/10 hover:text-white/80",
+                            isAutomationPanelOpen && !isAutomationEnabled && "bg-white/15 text-white/90"
+                        )}
+                    >
+                        <Settings2 size={12} />
+                        Automation {isAutomationEnabled ? '(ACTIVE)' : ''}
+                    </button>
 
                     <button onClick={onClearTokens} className="bg-red-500/10 text-red-500 hover:bg-red-500/20 border border-red-500/20 font-bold py-1 px-3 rounded text-[10px] h-7 flex items-center gap-2">
                         <Trash2 size={10} /> Clear
                     </button>
                 </div>
             )}
+
+            {/* Collapsible Automation Settings Panel */}
+            <AnimatePresence>
+                {isAutomationPanelOpen && (
+                    <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        className="border-b border-white/10 bg-black/40 overflow-hidden"
+                    >
+                        <div className="p-3">
+                            <div className="flex items-center justify-between mb-3 border-b border-white/5 pb-2">
+                                <h3 className="text-xs font-bold text-white/70 uppercase tracking-widest flex items-center gap-2">
+                                    <Settings2 size={14} className="text-blue-400" />
+                                    Advanced Order Execution Rules
+                                </h3>
+
+                                <div className="flex items-center gap-3 bg-white/5 px-3 py-1.5 rounded-lg border border-white/10 shadow-inner">
+                                    <label className="text-[11px] text-white/70 font-bold tracking-wider cursor-pointer select-none" onClick={() => onToggleAutomation(!isAutomationEnabled)}>
+                                        AUTOMATION SWITCH
+                                    </label>
+                                    <button
+                                        onClick={() => onToggleAutomation(!isAutomationEnabled)}
+                                        className={cn(
+                                            "w-9 h-5 rounded-full relative transition-colors duration-300 shadow-inner border border-black/50",
+                                            isAutomationEnabled ? "bg-red-500" : "bg-white/20"
+                                        )}
+                                    >
+                                        <div className={cn(
+                                            "absolute top-[3px] left-[3px] w-3.5 h-3.5 bg-white rounded-full transition-transform duration-300 shadow",
+                                            isAutomationEnabled ? "translate-x-4" : "translate-x-0"
+                                        )} />
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-5 gap-3">
+                                {/* 1. Signal Threshold */}
+                                <div className="bg-white/5 border border-white/5 rounded p-2 flex flex-col gap-1.5 hover:border-blue-500/30 transition-colors group">
+                                    <label className="text-[9px] text-white/40 uppercase font-black tracking-widest group-hover:text-blue-400 transition-colors">1. Signal</label>
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="number"
+                                            value={tempThreshold}
+                                            onChange={(e) => setTempThreshold(e.target.value)}
+                                            onBlur={(e) => onUpdateThreshold(parseInt(e.target.value) || 0)}
+                                            className="bg-transparent border-none text-[13px] font-bold text-white w-full focus:outline-none [&::-webkit-inner-spin-button]:appearance-none"
+                                            placeholder="Qty"
+                                        />
+                                        <button
+                                            onClick={() => onUpdateThreshold(parseInt(tempThreshold) || 0)}
+                                            className={cn("text-[9px] font-bold px-2 py-1 rounded transition-colors", parseInt(tempThreshold) !== autoOrderThreshold ? "bg-blue-600 text-white" : "bg-white/10 text-white/30")}
+                                        >
+                                            SET
+                                        </button>
+                                    </div>
+                                    <p className="text-[9px] text-white/30 leading-tight">Start timer if tick exceeds this.</p>
+                                </div>
+
+                                {/* 2. Timer */}
+                                <div className="bg-white/5 border border-white/5 rounded p-2 flex flex-col gap-1.5 hover:border-purple-500/30 transition-colors group">
+                                    <label className="text-[9px] text-white/40 uppercase font-black tracking-widest group-hover:text-purple-400 transition-colors">2. Timer (s)</label>
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="number"
+                                            value={tempTimerSeconds}
+                                            onChange={(e) => setTempTimerSeconds(e.target.value)}
+                                            onBlur={(e) => onUpdateTimerSeconds(parseInt(e.target.value) || 0)}
+                                            className="bg-transparent border-none text-[13px] font-bold text-white w-full focus:outline-none [&::-webkit-inner-spin-button]:appearance-none"
+                                            placeholder="Sec"
+                                        />
+                                        <button
+                                            onClick={() => onUpdateTimerSeconds(parseInt(tempTimerSeconds) || 0)}
+                                            className={cn("text-[9px] font-bold px-2 py-1 rounded transition-colors", parseInt(tempTimerSeconds) !== timerSeconds ? "bg-purple-600 text-white" : "bg-white/10 text-white/30")}
+                                        >
+                                            SET
+                                        </button>
+                                    </div>
+                                    <p className="text-[9px] text-white/30 leading-tight">Seconds to accumulate volume. (0 to bypass)</p>
+                                </div>
+
+                                {/* 3. Target Qty */}
+                                <div className="bg-white/5 border border-white/5 rounded p-2 flex flex-col gap-1.5 hover:border-yellow-500/30 transition-colors group">
+                                    <label className="text-[9px] text-white/40 uppercase font-black tracking-widest group-hover:text-yellow-400 transition-colors">3. Target Volume</label>
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="number"
+                                            value={tempTargetQty}
+                                            onChange={(e) => setTempTargetQty(e.target.value)}
+                                            onBlur={(e) => onUpdateTargetTotalQty(parseInt(e.target.value) || 0)}
+                                            className="bg-transparent border-none text-[13px] font-bold text-white w-full focus:outline-none [&::-webkit-inner-spin-button]:appearance-none"
+                                            placeholder="Qty"
+                                        />
+                                        <button
+                                            onClick={() => onUpdateTargetTotalQty(parseInt(tempTargetQty) || 0)}
+                                            className={cn("text-[9px] font-bold px-2 py-1 rounded transition-colors", parseInt(tempTargetQty) !== targetTotalQty ? "bg-yellow-600 text-black" : "bg-white/10 text-white/30")}
+                                        >
+                                            SET
+                                        </button>
+                                    </div>
+                                    <p className="text-[9px] text-white/30 leading-tight">Total required volume before timer ends.</p>
+                                </div>
+
+                                {/* 4. Order Qty */}
+                                <div className="bg-white/5 border border-white/5 rounded p-2 flex flex-col gap-1.5 hover:border-emerald-500/30 transition-colors group">
+                                    <label className="text-[9px] text-white/40 uppercase font-black tracking-widest group-hover:text-emerald-400 transition-colors">4. Order Qty</label>
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="number"
+                                            value={tempExecutionQty}
+                                            onChange={(e) => setTempExecutionQty(e.target.value)}
+                                            onBlur={(e) => onUpdateExecutionQty(parseInt(e.target.value) || 0)}
+                                            className="bg-transparent border-none text-[13px] font-bold text-emerald-400 w-full focus:outline-none [&::-webkit-inner-spin-button]:appearance-none"
+                                            placeholder="Qty"
+                                        />
+                                        <button
+                                            onClick={() => onUpdateExecutionQty(parseInt(tempExecutionQty) || 0)}
+                                            className={cn("text-[9px] font-bold px-2 py-1 rounded transition-colors", parseInt(tempExecutionQty) !== autoOrderExecutionQty ? "bg-emerald-600 text-white" : "bg-white/10 text-white/30")}
+                                        >
+                                            SET
+                                        </button>
+                                    </div>
+                                    <p className="text-[9px] text-white/30 leading-tight">Amount to actually Buy/Sell.</p>
+                                </div>
+
+                                {/* 5. Trigger Price */}
+                                <div className="bg-white/5 border border-white/5 rounded p-2 flex flex-col gap-1.5 hover:border-red-500/30 transition-colors group">
+                                    <label className="text-[9px] text-white/40 uppercase font-black tracking-widest group-hover:text-red-400 transition-colors">5. Stop Loss (Pts)</label>
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="number"
+                                            step="0.05"
+                                            value={tempTriggerPrice}
+                                            onChange={(e) => setTempTriggerPrice(e.target.value)}
+                                            onBlur={(e) => onUpdateTriggerPrice(parseFloat(e.target.value) || 0)}
+                                            className="bg-transparent border-none text-[13px] font-bold text-red-400 w-full focus:outline-none [&::-webkit-inner-spin-button]:appearance-none"
+                                            placeholder="Pts"
+                                        />
+                                        <button
+                                            onClick={() => onUpdateTriggerPrice(parseFloat(tempTriggerPrice) || 0)}
+                                            className={cn("text-[9px] font-bold px-2 py-1 rounded transition-colors", parseFloat(tempTriggerPrice) !== triggerPriceValue ? "bg-red-600 text-white" : "bg-white/10 text-white/30")}
+                                        >
+                                            SET
+                                        </button>
+                                    </div>
+                                    <p className="text-[9px] text-white/30 leading-tight">Sent in JSON Payload (0 = disabled).</p>
+                                </div>
+                            </div>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
             {/* Main Content with Reorder.Group */}
             <div
